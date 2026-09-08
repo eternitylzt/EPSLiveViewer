@@ -1,0 +1,518 @@
+"""Folder sequence selection and video export options dialog."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QImage, QImageReader
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QComboBox,
+    QColorDialog,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from config import VIDEO_SOURCE_SUFFIXES, filename_sort_key
+from crop_dialog import CropSelectionDialog, NormalizedCrop
+from eps_renderer import EpsRenderer
+from video_creator import VideoExportRequest
+
+
+@dataclass(frozen=True)
+class _ResolutionPreset:
+    label: str
+    width: int
+    height: int
+
+
+_PRESETS = (
+    _ResolutionPreset("Full HD（1920 × 1080）", 1920, 1080),
+    _ResolutionPreset("HD（1280 × 720）", 1280, 720),
+    _ResolutionPreset("4K UHD（3840 × 2160）", 3840, 2160),
+)
+
+
+class VideoCreationDialog(QDialog):
+    """Choose an ordered folder sequence and the MP4/GIF output settings."""
+
+    def __init__(
+        self,
+        initial_folder: Path,
+        renderer: EpsRenderer,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("制作视频")
+        self.setMinimumSize(860, 620)
+        self.resize(980, 700)
+        self._renderer = renderer
+        self._background_color = QColor("#FFFFFF")
+        self._crop_rect: NormalizedCrop | None = None
+        self._reference_source: Path | None = None
+        self._reference_raster_size: tuple[int, int] | None = None
+
+        root = QVBoxLayout(self)
+        folder_row = QHBoxLayout()
+        folder_row.addWidget(QLabel("源文件夹："))
+        self._folder_edit = QLineEdit()
+        self._folder_edit.setReadOnly(True)
+        folder_row.addWidget(self._folder_edit, 1)
+        browse_folder = QPushButton("选择文件夹…")
+        browse_folder.clicked.connect(self._choose_folder)
+        folder_row.addWidget(browse_folder)
+        root.addLayout(folder_row)
+
+        hint = QLabel(
+            "支持 EPS、PS、PNG、JPG/JPEG。左侧文件按显示顺序逐帧写入；"
+            "可将不需要的文件移到右侧。"
+        )
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        list_grid = QGridLayout()
+        list_grid.addWidget(QLabel("参与视频"), 0, 0)
+        list_grid.addWidget(QLabel("已排除"), 0, 2)
+        self._included = self._new_list(allow_reorder=True)
+        self._excluded = self._new_list(allow_reorder=False)
+        self._included.model().rowsMoved.connect(lambda *_args: self._sync_reference())
+        self._included.itemDoubleClicked.connect(
+            lambda _item: self._move_selected(self._included, self._excluded)
+        )
+        self._excluded.itemDoubleClicked.connect(
+            lambda _item: self._move_selected(self._excluded, self._included)
+        )
+        list_grid.addWidget(self._included, 1, 0)
+        move_buttons = QVBoxLayout()
+        move_buttons.addStretch(1)
+        exclude_button = QPushButton("排除 →")
+        exclude_button.clicked.connect(
+            lambda: self._move_selected(self._included, self._excluded)
+        )
+        include_button = QPushButton("← 加回")
+        include_button.clicked.connect(
+            lambda: self._move_selected(self._excluded, self._included)
+        )
+        move_buttons.addWidget(exclude_button)
+        move_buttons.addWidget(include_button)
+        move_buttons.addStretch(1)
+        list_grid.addLayout(move_buttons, 1, 1)
+        list_grid.addWidget(self._excluded, 1, 2)
+
+        order_row = QHBoxLayout()
+        self._count_label = QLabel()
+        order_row.addWidget(self._count_label)
+        order_row.addStretch(1)
+        up_button = QPushButton("上移")
+        down_button = QPushButton("下移")
+        up_button.clicked.connect(lambda: self._move_order(-1))
+        down_button.clicked.connect(lambda: self._move_order(1))
+        order_row.addWidget(up_button)
+        order_row.addWidget(down_button)
+        list_grid.addLayout(order_row, 2, 0)
+        root.addLayout(list_grid, 1)
+
+        crop_row = QHBoxLayout()
+        self._reference_label = QLabel("首帧：—")
+        self._reference_label.setWordWrap(True)
+        crop_row.addWidget(self._reference_label, 1)
+        self._crop_button = QPushButton("预览并选择区域…")
+        self._crop_button.clicked.connect(self._choose_crop_region)
+        self._crop_button.setEnabled(False)
+        crop_row.addWidget(self._crop_button)
+        self._clear_crop_button = QPushButton("恢复完整图像")
+        self._clear_crop_button.clicked.connect(self._clear_crop)
+        self._clear_crop_button.setEnabled(False)
+        crop_row.addWidget(self._clear_crop_button)
+        root.addLayout(crop_row)
+
+        options = QGroupBox("输出参数")
+        form = QFormLayout(options)
+        self._format_combo = QComboBox()
+        self._format_combo.addItem("MP4 视频", "mp4")
+        self._format_combo.addItem("GIF 动图", "gif")
+        self._format_combo.currentIndexChanged.connect(self._format_changed)
+        form.addRow("格式：", self._format_combo)
+
+        self._preset_combo = QComboBox()
+        for preset in _PRESETS:
+            self._preset_combo.addItem(preset.label, (preset.width, preset.height))
+        self._preset_combo.addItem("自定义", None)
+        self._preset_combo.currentIndexChanged.connect(self._preset_changed)
+        form.addRow("分辨率：", self._preset_combo)
+
+        dimensions = QHBoxLayout()
+        self._width_spin = self._dimension_spin(1920)
+        self._height_spin = self._dimension_spin(1080)
+        self._width_spin.valueChanged.connect(self._dimensions_changed)
+        self._height_spin.valueChanged.connect(self._dimensions_changed)
+        dimensions.addWidget(self._width_spin)
+        dimensions.addWidget(QLabel("×"))
+        dimensions.addWidget(self._height_spin)
+        dimensions.addStretch(1)
+        form.addRow("画布（像素）：", dimensions)
+
+        self._fps_spin = QSpinBox()
+        self._fps_spin.setRange(1, 60)
+        self._fps_spin.setValue(10)
+        self._fps_spin.setSuffix(" FPS")
+        form.addRow("帧率：", self._fps_spin)
+
+        self._color_button = QPushButton()
+        self._color_button.clicked.connect(self._choose_color)
+        self._update_color_button()
+        form.addRow("背景：", self._color_button)
+
+        output_row = QHBoxLayout()
+        self._output_edit = QLineEdit()
+        output_row.addWidget(self._output_edit, 1)
+        browse_output = QPushButton("浏览…")
+        browse_output.clicked.connect(self._choose_output)
+        output_row.addWidget(browse_output)
+        form.addRow("输出文件：", output_row)
+        root.addWidget(options)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("开始生成")
+        buttons.accepted.connect(self._validate_and_accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+        folder = Path(initial_folder).expanduser()
+        if not folder.is_dir():
+            folder = Path.home()
+        self._load_folder(folder)
+
+    @staticmethod
+    def _new_list(allow_reorder: bool) -> QListWidget:
+        widget = QListWidget()
+        widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        if allow_reorder:
+            widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+            widget.setDefaultDropAction(Qt.DropAction.MoveAction)
+        return widget
+
+    @staticmethod
+    def _dimension_spin(value: int) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(2, 30_000)
+        spin.setSingleStep(2)
+        spin.setValue(value)
+        return spin
+
+    def _choose_folder(self) -> None:
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "选择序列文件夹",
+            self._folder_edit.text() or str(Path.home()),
+        )
+        if chosen:
+            self._load_folder(Path(chosen))
+
+    def _load_folder(self, folder: Path) -> None:
+        try:
+            files = sorted(
+                (
+                    item.resolve()
+                    for item in folder.iterdir()
+                    if item.is_file() and item.suffix.lower() in VIDEO_SOURCE_SUFFIXES
+                ),
+                key=filename_sort_key,
+            )
+        except OSError as error:
+            QMessageBox.warning(self, "无法读取文件夹", str(error))
+            return
+        self._folder_edit.setText(str(folder.resolve()))
+        self._included.clear()
+        self._excluded.clear()
+        for path in files:
+            self._included.addItem(self._file_item(path))
+        self._update_count()
+        self._sync_reference(force=True)
+        self._output_edit.setText(str(folder.resolve() / "sequence.mp4"))
+
+    @staticmethod
+    def _file_item(path: Path) -> QListWidgetItem:
+        item = QListWidgetItem(path.name)
+        item.setData(Qt.ItemDataRole.UserRole, str(path))
+        item.setToolTip(str(path))
+        return item
+
+    def _move_selected(self, source: QListWidget, target: QListWidget) -> None:
+        selected_rows = sorted(
+            (source.row(item) for item in source.selectedItems()), reverse=True
+        )
+        moved: list[QListWidgetItem] = []
+        for row in selected_rows:
+            moved.append(source.takeItem(row))
+        for item in reversed(moved):
+            target.addItem(item)
+            item.setSelected(True)
+        self._update_count()
+        self._sync_reference()
+
+    def _move_order(self, direction: int) -> None:
+        row = self._included.currentRow()
+        destination = row + direction
+        if row < 0 or destination < 0 or destination >= self._included.count():
+            return
+        item = self._included.takeItem(row)
+        self._included.insertItem(destination, item)
+        self._included.setCurrentItem(item)
+        self._sync_reference()
+
+    def _update_count(self) -> None:
+        self._count_label.setText(
+            f"参与 {self._included.count()} 个；排除 {self._excluded.count()} 个"
+        )
+
+    def _first_source(self) -> Path | None:
+        if self._included.count() == 0:
+            return None
+        return Path(self._included.item(0).data(Qt.ItemDataRole.UserRole)).resolve()
+
+    @staticmethod
+    def _read_raster_image(source: Path) -> QImage:
+        reader = QImageReader(str(source))
+        reader.setAutoTransform(True)
+        image = reader.read()
+        if image.isNull():
+            detail = reader.errorString().strip()
+            suffix = f"：{detail}" if detail else ""
+            raise RuntimeError(f"无法读取图片 {source.name}{suffix}")
+        return image
+
+    def _set_dimensions(self, width: int, height: int) -> None:
+        self._width_spin.blockSignals(True)
+        self._height_spin.blockSignals(True)
+        self._width_spin.setValue(width)
+        self._height_spin.setValue(height)
+        self._width_spin.blockSignals(False)
+        self._height_spin.blockSignals(False)
+        self._dimensions_changed()
+
+    def _remember_raster_size(self, source: Path) -> None:
+        self._reference_raster_size = None
+        if source.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+            return
+        try:
+            image = self._read_raster_image(source)
+        except RuntimeError as error:
+            self._reference_label.setText(f"首帧：{source.name}（{error}）")
+            return
+        self._reference_raster_size = (image.width(), image.height())
+        self._set_dimensions(image.width(), image.height())
+
+    def _sync_reference(self, force: bool = False) -> None:
+        source = self._first_source()
+        if not force and source == self._reference_source:
+            return
+        self._reference_source = source
+        self._crop_rect = None
+        self._reference_raster_size = None
+        self._clear_crop_button.setEnabled(False)
+        self._crop_button.setEnabled(source is not None)
+        if source is None:
+            self._reference_label.setText("首帧：—")
+            return
+        self._reference_label.setText(f"首帧：{source.name}　使用完整图像")
+        self._remember_raster_size(source)
+        if self._reference_raster_size is not None:
+            width, height = self._reference_raster_size
+            self._reference_label.setText(
+                f"首帧：{source.name}　{width} × {height} 像素　使用完整图像"
+            )
+
+    def _load_reference_preview(self) -> QImage:
+        if self._reference_source is None:
+            raise RuntimeError("没有可预览的首帧。")
+        if self._reference_source.suffix.lower() not in {".eps", ".ps"}:
+            return self._read_raster_image(self._reference_source)
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        rendered = None
+        try:
+            rendered = self._renderer.render(
+                self._reference_source,
+                dpi=150,
+                guard_dimensions=True,
+            )
+            return self._read_raster_image(rendered.png_path)
+        finally:
+            if rendered is not None:
+                self._renderer.cache.release(rendered.png_path)
+            QApplication.restoreOverrideCursor()
+
+    def _choose_crop_region(self) -> None:
+        if self._reference_source is None:
+            return
+        try:
+            image = self._load_reference_preview()
+        except Exception as error:
+            QMessageBox.warning(self, "无法预览首帧", str(error))
+            return
+        dialog = CropSelectionDialog(
+            image,
+            self._reference_source.name,
+            self._crop_rect,
+            self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._crop_rect = dialog.normalized_crop()
+        crop_width, crop_height = dialog.pixel_crop_size()
+        if self._crop_rect is None:
+            if self._reference_raster_size is not None:
+                self._set_dimensions(*self._reference_raster_size)
+            self._reference_label.setText(
+                f"首帧：{self._reference_source.name}　使用完整图像"
+            )
+            self._clear_crop_button.setEnabled(False)
+            return
+        self._set_dimensions(crop_width, crop_height)
+        self._reference_label.setText(
+            f"首帧：{self._reference_source.name}　"
+            f"选定区域 {crop_width} × {crop_height} 像素；后续帧按相同比例裁剪"
+        )
+        self._clear_crop_button.setEnabled(True)
+
+    def _clear_crop(self) -> None:
+        self._crop_rect = None
+        self._clear_crop_button.setEnabled(False)
+        if self._reference_source is None:
+            return
+        if self._reference_raster_size is not None:
+            self._set_dimensions(*self._reference_raster_size)
+            width, height = self._reference_raster_size
+            self._reference_label.setText(
+                f"首帧：{self._reference_source.name}　"
+                f"{width} × {height} 像素　使用完整图像"
+            )
+        else:
+            self._reference_label.setText(
+                f"首帧：{self._reference_source.name}　使用完整图像"
+            )
+
+    def _preset_changed(self, index: int) -> None:
+        dimensions = self._preset_combo.itemData(index)
+        if dimensions is None:
+            return
+        self._width_spin.blockSignals(True)
+        self._height_spin.blockSignals(True)
+        self._width_spin.setValue(dimensions[0])
+        self._height_spin.setValue(dimensions[1])
+        self._width_spin.blockSignals(False)
+        self._height_spin.blockSignals(False)
+
+    def _dimensions_changed(self) -> None:
+        dimensions = (self._width_spin.value(), self._height_spin.value())
+        for index in range(len(_PRESETS)):
+            if self._preset_combo.itemData(index) == dimensions:
+                self._preset_combo.blockSignals(True)
+                self._preset_combo.setCurrentIndex(index)
+                self._preset_combo.blockSignals(False)
+                return
+        self._preset_combo.blockSignals(True)
+        self._preset_combo.setCurrentIndex(self._preset_combo.count() - 1)
+        self._preset_combo.blockSignals(False)
+
+    def _choose_color(self) -> None:
+        color = QColorDialog.getColor(
+            self._background_color,
+            self,
+            "选择视频背景颜色",
+        )
+        if color.isValid():
+            self._background_color = color
+            self._update_color_button()
+
+    def _update_color_button(self) -> None:
+        name = self._background_color.name().upper()
+        foreground = "#000000" if self._background_color.lightness() > 128 else "#FFFFFF"
+        self._color_button.setText(name)
+        self._color_button.setStyleSheet(
+            f"background-color: {name}; color: {foreground}; padding: 4px 18px;"
+        )
+
+    def _format_changed(self) -> None:
+        output_format = self._format_combo.currentData()
+        current = Path(self._output_edit.text().strip() or "sequence.mp4")
+        self._output_edit.setText(str(current.with_suffix(f".{output_format}")))
+
+    def _choose_output(self) -> None:
+        output_format = self._format_combo.currentData()
+        file_filter = "MP4 视频 (*.mp4)" if output_format == "mp4" else "GIF 动图 (*.gif)"
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存视频",
+            self._output_edit.text(),
+            file_filter,
+        )
+        if filename:
+            self._output_edit.setText(
+                str(Path(filename).with_suffix(f".{output_format}"))
+            )
+
+    def _validate_and_accept(self) -> None:
+        if self._included.count() == 0:
+            QMessageBox.warning(self, "无法生成视频", "请至少保留一个参与视频的文件。")
+            return
+        output_format = str(self._format_combo.currentData())
+        width = self._width_spin.value()
+        height = self._height_spin.value()
+        if width * height > 33_177_600:
+            QMessageBox.warning(
+                self,
+                "分辨率过大",
+                "画布像素总数不能超过 8K UHD（7680 × 4320）。",
+            )
+            return
+        output_text = self._output_edit.text().strip()
+        if not output_text:
+            QMessageBox.warning(self, "输出路径无效", "请选择输出文件。")
+            return
+        target = Path(output_text).expanduser().with_suffix(f".{output_format}")
+        if target.resolve() in self.selected_files():
+            QMessageBox.warning(self, "输出路径无效", "输出文件不能覆盖序列源文件。")
+            return
+        self._output_edit.setText(str(target))
+        self.accept()
+
+    def selected_files(self) -> tuple[Path, ...]:
+        return tuple(
+            Path(self._included.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self._included.count())
+        )
+
+    def request(self) -> VideoExportRequest:
+        output_format = str(self._format_combo.currentData())
+        return VideoExportRequest(
+            sources=self.selected_files(),
+            target=Path(self._output_edit.text()).with_suffix(f".{output_format}"),
+            output_format=output_format,
+            width=self._width_spin.value(),
+            height=self._height_spin.value(),
+            fps=self._fps_spin.value(),
+            background_color=self._background_color.name().upper(),
+            crop_rect=self._crop_rect,
+        )

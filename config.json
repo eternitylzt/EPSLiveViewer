@@ -1,0 +1,9 @@
+{
+    "ghostscript_path": "",
+    "auto_refresh": true,
+    "refresh_interval": 500,
+    "background_mode": "transparent",
+    "background_color": "#FFFFFF",
+    "export_dpi": 300
+}
+

@@ -1,0 +1,12 @@
+# Python environments and generated build intermediates
+.venv/
+build/
+__pycache__/
+*.py[cod]
+*.spec
+
+# Editor and operating-system metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

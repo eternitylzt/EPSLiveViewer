@@ -1,0 +1,6 @@
+# QtPdf tiled rendering and freezing are verified with PyQt6 6.8–6.10.
+# Keep the tested upper bound because the 6.11 Windows wheel currently has an
+# ICU dependency issue when frozen with PyInstaller.
+PyQt6>=6.8,<6.11
+imageio-ffmpeg>=0.6,<1
+PyInstaller>=6.3,<7
