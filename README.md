@@ -18,7 +18,7 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级 Windows 查看器�
 
 ### 1. 环境要求
 
-本程序针对Windows系统开发。双击EPSLiveViewer.exe即可运行。程序在本项目中的位置：EPSLiveViewer/dist/。
+本程序针对 Windows 系统开发。下载并双击 `dist/EPSLiveViewer.exe` 即可运行，无需安装 Python。
 
 程序运行时需要 Ghostscript，但不需要安装 Python。安装后通常会自动识别 `gswin64c.exe`；未识别时，请在“文件 → 设置”中手动选择该文件。
 
