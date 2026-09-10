@@ -2,6 +2,11 @@ name: EPS Live Viewer multi-platform release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing or new release tag
+        required: true
+        default: eps-live-viewer-v1.0.0
   push:
     tags:
       - "eps-live-viewer-v*"
@@ -24,10 +29,10 @@ jobs:
             artifact: EPSLiveViewer-Linux-x64.tar.gz
           - runner: macos-latest
             target: macOS Apple Silicon
-            artifact: EPSLiveViewer-macOS-arm64.zip
+            artifact: EPSLiveViewer-macOS-arm64.dmg
           - runner: macos-15-intel
             target: macOS Intel
-            artifact: EPSLiveViewer-macOS-x64.zip
+            artifact: EPSLiveViewer-macOS-x64.dmg
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -76,6 +81,8 @@ jobs:
       - name: Build macOS application
         if: runner.os == 'macOS'
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
           python -m PyInstaller --noconfirm --clean --onedir --windowed \
             --name EPSLiveViewer \
@@ -83,10 +90,33 @@ jobs:
             --add-data "resources:resources" \
             --collect-all imageio_ffmpeg \
             main.py
-          mkdir -p package packages
-          cp -R dist/EPSLiveViewer.app package/
-          cp README.md README_EN.md package/
-          ditto -c -k --sequesterRsrc --keepParent package "packages/${{ matrix.artifact }}"
+          APP_VERSION="${RELEASE_TAG#eps-live-viewer-v}"
+          export APP_VERSION
+          python - <<'PY'
+          import os
+          import plistlib
+          from pathlib import Path
+
+          info_plist = Path("dist/EPSLiveViewer.app/Contents/Info.plist")
+          with info_plist.open("rb") as stream:
+              info = plistlib.load(stream)
+          info["CFBundleDisplayName"] = "EPS Live Viewer"
+          info["CFBundleName"] = "EPS Live Viewer"
+          info["CFBundleShortVersionString"] = os.environ["APP_VERSION"]
+          info["CFBundleVersion"] = os.environ["APP_VERSION"]
+          with info_plist.open("wb") as stream:
+              plistlib.dump(info, stream)
+          PY
+          codesign --force --deep --sign - dist/EPSLiveViewer.app
+          mkdir -p dmg-root packages
+          cp -R dist/EPSLiveViewer.app dmg-root/
+          ln -s /Applications dmg-root/Applications
+          cp README.md README_EN.md dmg-root/
+          hdiutil create \
+            -volname "EPS Live Viewer ${APP_VERSION}" \
+            -srcfolder dmg-root \
+            -format UDZO \
+            -ov "packages/${{ matrix.artifact }}"
 
       - name: Upload package
         uses: actions/upload-artifact@v4
@@ -97,7 +127,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/eps-live-viewer-v')
+    if: startsWith(github.ref, 'refs/tags/eps-live-viewer-v') || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -115,11 +145,19 @@ jobs:
       - name: Create checksums
         run: sha256sum release-assets/* > release-assets/SHA256SUMS.txt
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" release-assets/* \
-            --verify-tag \
-            --notes-file RELEASE_NOTES.md \
-            --title "EPS Live Viewer ${GITHUB_REF_NAME#eps-live-viewer-}"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release delete-asset "$RELEASE_TAG" EPSLiveViewer-macOS-arm64.zip --yes || true
+            gh release delete-asset "$RELEASE_TAG" EPSLiveViewer-macOS-x64.zip --yes || true
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+            gh release edit "$RELEASE_TAG" --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --verify-tag \
+              --notes-file RELEASE_NOTES.md \
+              --title "EPS Live Viewer ${RELEASE_TAG#eps-live-viewer-}"
+          fi

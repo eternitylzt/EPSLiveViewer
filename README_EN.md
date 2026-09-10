@@ -23,7 +23,7 @@ EPS Live Viewer is a lightweight desktop viewer for rapid scientific-plot iterat
 | --- | --- | --- |
 | Windows x64 | Single-file `EPSLiveViewer.exe` | Primary development and validation platform; existing usage is unchanged |
 | Linux x64 | Single-file `EPSLiveViewer` | Initial portable build; requires a desktop environment and system Ghostscript |
-| macOS Apple Silicon / Intel | `EPSLiveViewer.app` | Initial native builds for both architectures; currently unsigned and not notarized |
+| macOS Apple Silicon / Intel | `.dmg` installer containing `EPSLiveViewer.app` | Installable builds for both architectures; not signed with an Apple Developer certificate or notarized |
 
 Download packages from [GitHub Releases](https://github.com/eternitylzt/EPSLiveViewer/releases). Linux and macOS packages are built on native GitHub-hosted runners and should be considered initial ports. Platform-specific reports are welcome through GitHub Issues.
 
@@ -31,7 +31,7 @@ Download packages from [GitHub Releases](https://github.com/eternitylzt/EPSLiveV
 
 ### 1. Requirements
 
-Release packages do not require Python. Ghostscript is required to preview EPS/PS files or use them as video frames. Windows searches for `gswin64c.exe`; Linux and macOS search for `gs`. If detection fails, select the executable under **File → Settings**. Creating a video from PNG/JPG files alone does not require Ghostscript.
+Release packages do not require Python. On macOS, download the Apple Silicon build for an M-series Mac or the Intel build for an Intel Mac, open the DMG, and drag `EPSLiveViewer.app` into `Applications`. Ghostscript is required to preview EPS/PS files or use them as video frames. Windows searches for `gswin64c.exe`; Linux and macOS search for `gs`. If detection fails, select the executable under **File → Settings**. Creating a video from PNG/JPG files alone does not require Ghostscript.
 
 ### 2. Open and live-preview a file
 
@@ -81,7 +81,7 @@ Visible tiles are rerendered after continuous zooming stops. Photos or bitmaps e
 
 ### macOS says the application cannot be verified
 
-The initial macOS package is not signed or notarized. Review the source and release checksum before using it, then follow the security controls provided by your macOS version. A future signed release can replace this provisional distribution.
+The DMG is not signed with an Apple Developer certificate or notarized. For the first launch, open `Applications` in Finder, Control-click EPS Live Viewer, choose **Open**, and confirm once more. Later launches work normally from `Applications`.
 
 ### Later frames have different resolutions
 
@@ -105,7 +105,7 @@ chmod +x build_unix.sh
 ./build_unix.sh
 ```
 
-Pushing an `eps-live-viewer-v*` tag runs the [multi-platform release workflow](.github/workflows/eps-live-viewer-release.yml). It builds on native Windows, Ubuntu, macOS Apple Silicon, and macOS Intel runners, publishes archives and SHA-256 checksums, and creates a GitHub Release. PyInstaller does not cross-compile these desktop bundles from one operating system.
+Pushing an `eps-live-viewer-v*` tag or manually running the [multi-platform release workflow](.github/workflows/eps-live-viewer-release.yml) builds on native Windows, Ubuntu, macOS Apple Silicon, and macOS Intel runners. It publishes platform packages, macOS DMGs, and SHA-256 checksums, then creates or updates a GitHub Release. PyInstaller does not cross-compile these desktop bundles from one operating system.
 
 This project was developed primarily with the assistance of Codex.
 

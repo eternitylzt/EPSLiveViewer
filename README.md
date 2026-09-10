@@ -22,7 +22,7 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级桌面查看器。�
 | --- | --- | --- |
 | Windows x64 | 单文件 `EPSLiveViewer.exe` | 主要开发与验证平台，原有用法不变 |
 | Linux x64 | 单文件 `EPSLiveViewer` | 可移植基础版本，需桌面环境与系统 Ghostscript |
-| macOS Apple Silicon / Intel | `EPSLiveViewer.app` | 两种架构的可移植基础版本，当前未签名/公证 |
+| macOS Apple Silicon / Intel | `.dmg` 安装镜像，内含 `EPSLiveViewer.app` | 两种架构的可安装版本，当前未使用 Apple Developer 证书签名或公证 |
 
 三个平台的安装包可从 [GitHub Releases](https://github.com/eternitylzt/EPSLiveViewer/releases) 下载。Linux/macOS 版本由 GitHub Actions 在对应原生系统上构建，属于初始移植版本；欢迎通过 Issue 反馈平台相关问题。
 
@@ -30,7 +30,7 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级桌面查看器。�
 
 ### 1. 环境要求
 
-Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveViewer`；macOS 为 `EPSLiveViewer.app`。
+Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveViewer`。macOS 请按处理器下载 Apple Silicon（M 系列）或 Intel 版 `.dmg`，打开镜像后将 `EPSLiveViewer.app` 拖到 `Applications` 文件夹。
 
 发布包不要求安装 Python。预览 EPS/PS 或将其制作成视频时需要系统 Ghostscript：Windows 自动查找 `gswin64c.exe`，Linux/macOS 自动查找 `gs`；未识别时，请在“文件 → 设置”中手动选择。仅使用 PNG/JPG 制作视频不需要 Ghostscript。
 
@@ -75,6 +75,10 @@ Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveV
 ### 配置文件保存在哪里
 
 为保持兼容，Windows 发布版仍使用 EXE 同目录的 `config.json`。Linux 使用 `$XDG_CONFIG_HOME/EPSLiveViewer/config.json`（未设置该变量时为 `~/.config/EPSLiveViewer/config.json`），macOS 使用 `~/Library/Application Support/EPSLiveViewer/config.json`。
+
+### macOS 提示无法验证开发者
+
+当前 DMG 未使用 Apple Developer 证书签名或公证。首次启动时，在 Finder 的“应用程序”中按住 Control 点击 EPS Live Viewer，选择“打开”，再确认一次。后续可正常从“应用程序”启动。
 
 ### 文件刚生成时没有立即刷新
 
@@ -127,7 +131,7 @@ chmod +x build_unix.sh
 ./build_unix.sh
 ```
 
-推送 `eps-live-viewer-v*` 标签时，[多平台发布工作流](.github/workflows/eps-live-viewer-release.yml) 会在 Windows、Ubuntu、macOS Apple Silicon 和 macOS Intel 原生 runner 上分别构建安装包、生成 SHA-256 校验文件并创建 GitHub Release。PyInstaller 不支持从单一操作系统交叉编译所有平台，因此各平台必须独立构建。
+推送 `eps-live-viewer-v*` 标签或手动运行[多平台发布工作流](.github/workflows/eps-live-viewer-release.yml)，会在 Windows、Ubuntu、macOS Apple Silicon 和 macOS Intel 原生 runner 上分别构建发行包、生成 SHA-256 校验文件并创建或更新 GitHub Release。macOS 产物为可拖入“应用程序”的 DMG。PyInstaller 不支持从单一操作系统交叉编译所有平台，因此各平台必须独立构建。
 
 附：本项目主要借助 Codex 生成。
 

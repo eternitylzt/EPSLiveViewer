@@ -26,7 +26,19 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         --onedir \
         --osx-bundle-identifier com.zhentongli.epsliveviewer \
         main.py
-    echo "Built dist/EPSLiveViewer.app"
+    app_version="${APP_VERSION:-1.0.0}"
+    codesign --force --deep --sign - dist/EPSLiveViewer.app
+    rm -rf dmg-root
+    mkdir -p dmg-root
+    cp -R dist/EPSLiveViewer.app dmg-root/
+    ln -s /Applications dmg-root/Applications
+    cp README.md README_EN.md dmg-root/
+    hdiutil create \
+        -volname "EPS Live Viewer ${app_version}" \
+        -srcfolder dmg-root \
+        -format UDZO \
+        -ov dist/EPSLiveViewer-macOS.dmg
+    echo "Built dist/EPSLiveViewer.app and dist/EPSLiveViewer-macOS.dmg"
 else
     .venv/bin/python -m PyInstaller "${common_args[@]}" --onefile main.py
     chmod +x dist/EPSLiveViewer
