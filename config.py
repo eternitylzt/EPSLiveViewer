@@ -118,7 +118,7 @@ class AppConfig:
 
 
 class ConfigManager:
-    """Load and save ``config.json`` beside the script or packaged EXE."""
+    """Load and save ``config.json`` in a platform-appropriate location."""
 
     def __init__(self) -> None:
         self.base_dir = self._application_dir()
@@ -126,10 +126,21 @@ class ConfigManager:
 
     @staticmethod
     def _application_dir() -> Path:
-        # A one-file PyInstaller app extracts into a temporary directory. Settings
-        # belong beside the actual EXE so users can edit them normally.
-        if getattr(sys, "frozen", False):
+        # Preserve the established portable Windows behavior: config.json lives
+        # beside the EXE. Unix application folders are commonly read-only, so
+        # frozen Linux/macOS builds use the conventional per-user config area.
+        if getattr(sys, "frozen", False) and sys.platform == "win32":
             return Path(sys.executable).resolve().parent
+        if getattr(sys, "frozen", False) and sys.platform == "darwin":
+            return Path.home() / "Library" / "Application Support" / "EPSLiveViewer"
+        if getattr(sys, "frozen", False):
+            xdg_config_home = os.environ.get("XDG_CONFIG_HOME", "").strip()
+            config_root = (
+                Path(xdg_config_home).expanduser()
+                if xdg_config_home
+                else Path.home() / ".config"
+            )
+            return config_root / "EPSLiveViewer"
         return Path(__file__).resolve().parent
 
     def load(self) -> AppConfig:
@@ -179,7 +190,7 @@ class ConfigManager:
 
 
 def find_ghostscript(configured_path: str = "") -> Path | None:
-    """Find a Ghostscript console executable in typical Windows locations."""
+    """Find the Ghostscript command on Windows, Linux, or macOS."""
     if configured_path:
         candidate = Path(configured_path).expanduser()
         if candidate.is_file():
@@ -191,10 +202,21 @@ def find_ghostscript(configured_path: str = "") -> Path | None:
         if candidate and candidate.is_file():
             return candidate
 
-    for executable in ("gswin64c.exe", "gswin32c.exe", "gs.exe"):
+    for executable in ("gswin64c.exe", "gswin32c.exe", "gs.exe", "gs"):
         located = shutil.which(executable)
         if located:
             return Path(located)
+
+    if sys.platform != "win32":
+        # Homebrew is not always present in the PATH of a Finder-launched app.
+        for candidate in (
+            Path("/opt/homebrew/bin/gs"),
+            Path("/usr/local/bin/gs"),
+            Path("/usr/bin/gs"),
+        ):
+            if candidate.is_file():
+                return candidate
+        return None
 
     candidates: list[Path] = []
     program_roots = [

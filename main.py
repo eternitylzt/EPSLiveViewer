@@ -19,7 +19,7 @@ def application_icon_path() -> Path:
 
 
 def main() -> int:
-    # Qt 6 enables high-DPI pixmaps automatically on current Windows systems.
+    # Qt 6 enables high-DPI pixmaps automatically on supported desktop systems.
     app = QApplication(sys.argv)
     app.setApplicationName("EPS Live Viewer")
     app.setOrganizationName("EPSLiveViewer")

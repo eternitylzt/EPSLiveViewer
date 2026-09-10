@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -140,11 +141,17 @@ class SettingsDialog(QDialog):
     def _browse_ghostscript(self) -> None:
         current = Path(self._ghostscript_edit.text().strip()).expanduser()
         start = str(current.parent if current.is_file() else Path.home())
+        executable_filter = (
+            "Ghostscript (gswin64c.exe gswin32c.exe gs.exe);;"
+            "可执行文件 (*.exe);;所有文件 (*.*)"
+            if sys.platform == "win32"
+            else "Ghostscript (gs);;所有文件 (*)"
+        )
         filename, _ = QFileDialog.getOpenFileName(
             self,
             "选择 Ghostscript 控制台程序",
             start,
-            "Ghostscript (gswin64c.exe gswin32c.exe gs.exe);;可执行文件 (*.exe);;所有文件 (*.*)",
+            executable_filter,
         )
         if filename:
             self._ghostscript_edit.setText(filename)

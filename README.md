@@ -1,6 +1,8 @@
 # EPS Live Viewer
 
-EPS Live Viewer 是面向科研绘图快速迭代的轻量级 Windows 查看器。它可打开 EPS 和 PostScript（PS）文件；当 IDL、Python、MATLAB、Fortran 等程序重新生成当前文件后，预览会自动更新。
+[简体中文](README.md) | [English](README_EN.md)
+
+EPS Live Viewer 是面向科研绘图快速迭代的轻量级桌面查看器。它可打开 EPS 和 PostScript（PS）文件；当 IDL、Python、MATLAB、Fortran 等程序重新生成当前文件后，预览会自动更新。Windows 版本保持原有稳定用法，仓库现已具备 Linux 和 macOS 的构建、配置与发布基础。
 
 ## 主要功能
 
@@ -14,23 +16,33 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级 Windows 查看器�
 - 将文件夹中的 EPS、PS、PNG、JPG/JPEG 制作成 MP4 或 GIF，可排除文件、调整帧序、分辨率、帧率和背景色，并通过首帧预览框选局部区域。
 - 保存最近打开的 10 个文件。
 
+## 平台支持
+
+| 平台 | 发布形式 | 当前状态 |
+| --- | --- | --- |
+| Windows x64 | 单文件 `EPSLiveViewer.exe` | 主要开发与验证平台，原有用法不变 |
+| Linux x64 | 单文件 `EPSLiveViewer` | 可移植基础版本，需桌面环境与系统 Ghostscript |
+| macOS Apple Silicon / Intel | `EPSLiveViewer.app` | 两种架构的可移植基础版本，当前未签名/公证 |
+
+三个平台的安装包可从 [GitHub Releases](https://github.com/eternitylzt/EPSLiveViewer/releases) 下载。Linux/macOS 版本由 GitHub Actions 在对应原生系统上构建，属于初始移植版本；欢迎通过 Issue 反馈平台相关问题。
+
 ## 使用方法
 
 ### 1. 环境要求
 
-本程序针对 Windows 系统开发。下载并双击 `dist/EPSLiveViewer.exe` 即可运行，无需安装 Python。
+Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveViewer`；macOS 为 `EPSLiveViewer.app`。
 
-程序运行时需要 Ghostscript，但不需要安装 Python。安装后通常会自动识别 `gswin64c.exe`；未识别时，请在“文件 → 设置”中手动选择该文件。
+发布包不要求安装 Python。预览 EPS/PS 或将其制作成视频时需要系统 Ghostscript：Windows 自动查找 `gswin64c.exe`，Linux/macOS 自动查找 `gs`；未识别时，请在“文件 → 设置”中手动选择。仅使用 PNG/JPG 制作视频不需要 Ghostscript。
 
 ### 2. 打开文件
 
-可使用“文件 → 打开 EPS/PS”，也可将 `.eps` 或 `.ps` 文件拖入中央预览区域。命令行示例：
+可使用“文件 → 打开 EPS/PS”，也可将 `.eps` 或 `.ps` 文件拖入中央预览区域。Windows 命令行示例：
 
 ```powershell
 .\EPSLiveViewer.exe "D:\plots\figure.ps"
 ```
 
-如需双击打开，可在 Windows 中为 `.eps` 或 `.ps` 文件选择“打开方式”，并指定 `EPSLiveViewer.exe`。
+如需双击打开，可在系统中为 `.eps` 或 `.ps` 文件关联 EPS Live Viewer。Windows 可在“打开方式”中指定 `EPSLiveViewer.exe`。
 
 ### 3. 实时查看
 
@@ -52,13 +64,17 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级 Windows 查看器�
 - 点“预览并选择区域”，在首帧上按住鼠标左键拖拽并确认，即可只输出框选部分；点“恢复完整图像”可取消裁剪。
 - 设置 MP4 或 GIF、画布分辨率、帧率、背景色及输出路径后，点“开始生成”。
 
-裁剪区域记录为相对于首帧宽高的比例。后续图片即使分辨率不同，也会在各自相同的比例位置裁剪，然后保持长宽比并居中放入统一画布。EPS/PS 取第一页生成帧。MP4/GIF 编码器已包含在 EXE 中；但预览或处理 EPS/PS 帧时仍需要 Ghostscript。仅使用 PNG/JPG 制作视频则不需要 Ghostscript。
+裁剪区域记录为相对于首帧宽高的比例。后续图片即使分辨率不同，也会在各自相同的比例位置裁剪，然后保持长宽比并居中放入统一画布。EPS/PS 取第一页生成帧。MP4/GIF 编码器已包含在发布包中；但预览或处理 EPS/PS 帧时仍需要 Ghostscript。仅使用 PNG/JPG 制作视频则不需要 Ghostscript。
 
 ## 常见问题
 
 ### 提示“未找到 Ghostscript”
 
-请安装 Ghostscript，并在设置中选择命令行程序 `gswin64c.exe`，不要选择带窗口的 `gswin64.exe`。
+请安装 Ghostscript。Windows 应在设置中选择命令行程序 `gswin64c.exe`，不要选择带窗口的 `gswin64.exe`；Linux/macOS 选择 `gs`。macOS 通过 Finder 启动时可能没有终端的 PATH，程序也会检查 Homebrew 常用位置。
+
+### 配置文件保存在哪里
+
+为保持兼容，Windows 发布版仍使用 EXE 同目录的 `config.json`。Linux 使用 `$XDG_CONFIG_HOME/EPSLiveViewer/config.json`（未设置该变量时为 `~/.config/EPSLiveViewer/config.json`），macOS 使用 `~/Library/Application Support/EPSLiveViewer/config.json`。
 
 ### 文件刚生成时没有立即刷新
 
@@ -95,7 +111,7 @@ PNG 是整页位图，像素数量随 DPI 的平方增长。通常建议使用 3
 <details>
 <summary>开发与打包说明</summary>
 
-开发环境需要 Windows、Python 3.11+ 和 Ghostscript。安装依赖后可运行：
+开发环境需要 Python 3.11+。运行和调试 EPS/PS 功能时还需要 Ghostscript：
 
 ```powershell
 py -3.11 -m venv .venv
@@ -104,7 +120,15 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-双击 `build.bat` 可创建虚拟环境、安装依赖并用 PyInstaller 生成 `dist\EPSLiveViewer.exe`。发布时请将 EXE 与 `config.json` 放在同一目录；目标电脑仍需单独安装 Ghostscript。
+Windows 双击 `build.bat` 可继续生成原有单文件 `dist\EPSLiveViewer.exe`。Linux/macOS 可执行：
 
-附：本项目主要借助Codex生成。
+```bash
+chmod +x build_unix.sh
+./build_unix.sh
+```
+
+推送 `eps-live-viewer-v*` 标签时，[多平台发布工作流](.github/workflows/eps-live-viewer-release.yml) 会在 Windows、Ubuntu、macOS Apple Silicon 和 macOS Intel 原生 runner 上分别构建安装包、生成 SHA-256 校验文件并创建 GitHub Release。PyInstaller 不支持从单一操作系统交叉编译所有平台，因此各平台必须独立构建。
+
+附：本项目主要借助 Codex 生成。
+
 </details>

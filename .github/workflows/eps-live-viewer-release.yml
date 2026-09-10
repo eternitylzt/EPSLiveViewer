@@ -1,0 +1,125 @@
+name: EPS Live Viewer multi-platform release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "eps-live-viewer-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: Windows x64
+            artifact: EPSLiveViewer-Windows-x64.zip
+          - runner: ubuntu-latest
+            target: Linux x64
+            artifact: EPSLiveViewer-Linux-x64.tar.gz
+          - runner: macos-latest
+            target: macOS Apple Silicon
+            artifact: EPSLiveViewer-macOS-arm64.zip
+          - runner: macos-15-intel
+            target: macOS Intel
+            artifact: EPSLiveViewer-macOS-x64.zip
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip -r requirements.txt
+
+      - name: Build Windows executable
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+            --name EPSLiveViewer `
+            --icon "resources\icon.ico" `
+            --add-data "resources;resources" `
+            --collect-all imageio_ffmpeg `
+            main.py
+          New-Item -ItemType Directory -Force package, packages | Out-Null
+          Copy-Item dist\EPSLiveViewer.exe package\
+          Copy-Item -Path config.json, README.md, README_EN.md -Destination package\
+          Compress-Archive -Path package\* -DestinationPath "packages\${{ matrix.artifact }}"
+
+      - name: Build Linux executable
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed \
+            --name EPSLiveViewer \
+            --add-data "resources:resources" \
+            --collect-all imageio_ffmpeg \
+            main.py
+          mkdir -p package packages
+          chmod +x dist/EPSLiveViewer
+          cp dist/EPSLiveViewer README.md README_EN.md package/
+          tar -C package -czf "packages/${{ matrix.artifact }}" .
+
+      - name: Build macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --windowed \
+            --name EPSLiveViewer \
+            --osx-bundle-identifier com.zhentongli.epsliveviewer \
+            --add-data "resources:resources" \
+            --collect-all imageio_ffmpeg \
+            main.py
+          mkdir -p package packages
+          cp -R dist/EPSLiveViewer.app package/
+          cp README.md README_EN.md package/
+          ditto -c -k --sequesterRsrc --keepParent package "packages/${{ matrix.artifact }}"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: packages/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/eps-live-viewer-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@v4
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create checksums
+        run: sha256sum release-assets/* > release-assets/SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --verify-tag \
+            --notes-file RELEASE_NOTES.md \
+            --title "EPS Live Viewer ${GITHUB_REF_NAME#eps-live-viewer-}"
