@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QImage, QImageReader
+from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -34,7 +34,7 @@ from config import VIDEO_SOURCE_SUFFIXES, filename_sort_key
 from crop_dialog import CropSelectionDialog, NormalizedCrop
 from eps_renderer import EpsRenderer
 from i18n import tr
-from video_creator import VideoExportRequest
+from video_creator import VideoExporter, VideoExportRequest
 
 
 @dataclass(frozen=True)
@@ -298,19 +298,6 @@ class VideoCreationDialog(QDialog):
             return None
         return Path(self._included.item(0).data(Qt.ItemDataRole.UserRole)).resolve()
 
-    @staticmethod
-    def _read_raster_image(source: Path) -> QImage:
-        reader = QImageReader(str(source))
-        reader.setAutoTransform(True)
-        image = reader.read()
-        if image.isNull():
-            detail = reader.errorString().strip()
-            suffix = f"：{detail}" if detail else ""
-            raise RuntimeError(
-                tr("无法读取图片 {name}{suffix}", name=source.name, suffix=suffix)
-            )
-        return image
-
     def _set_dimensions(self, width: int, height: int) -> None:
         self._width_spin.blockSignals(True)
         self._height_spin.blockSignals(True)
@@ -325,7 +312,7 @@ class VideoCreationDialog(QDialog):
         if source.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
             return
         try:
-            image = self._read_raster_image(source)
+            image = VideoExporter.read_raster(source)
         except RuntimeError as error:
             self._reference_label.setText(
                 tr("首帧：{name}（{error}）", name=source.name, error=error)
@@ -365,7 +352,7 @@ class VideoCreationDialog(QDialog):
         if self._reference_source is None:
             raise RuntimeError(tr("没有可预览的首帧。"))
         if self._reference_source.suffix.lower() not in {".eps", ".ps"}:
-            return self._read_raster_image(self._reference_source)
+            return VideoExporter.read_raster(self._reference_source)
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         rendered = None
@@ -375,7 +362,7 @@ class VideoCreationDialog(QDialog):
                 dpi=150,
                 guard_dimensions=True,
             )
-            return self._read_raster_image(rendered.png_path)
+            return VideoExporter.read_raster(rendered.png_path)
         finally:
             if rendered is not None:
                 self._renderer.cache.release(rendered.png_path)

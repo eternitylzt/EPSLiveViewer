@@ -104,7 +104,11 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-Run `build.bat` on Windows to retain the original single-file build. On Linux or macOS run:
+Run `build.bat` on Windows to retain the original single-file build.
+
+The Windows build uses `hooks/` to omit the unused software OpenGL library and losslessly compress the complete bundled FFmpeg executable. The encoder is unpacked into a temporary directory on first video export and cleaned up at exit. Viewing needs no encoder extraction; video export needs no download or separate FFmpeg installation. Keep `--additional-hooks-dir hooks` and do not combine it with `--collect-all imageio_ffmpeg`, which would package duplicate files. Preview and video export share image-reading code. File-lock handling, cancellation, memory limits, and atomic output remain in place.
+
+On Linux or macOS run:
 
 ```bash
 chmod +x build_unix.sh

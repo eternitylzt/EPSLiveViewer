@@ -1,6 +1,8 @@
 # Python environments and generated build intermediates
 .venv/
 build/
+build-size/
+dist-optimized/
 __pycache__/
 *.py[cod]
 *.spec

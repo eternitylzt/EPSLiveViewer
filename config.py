@@ -14,7 +14,7 @@ from typing import Any
 
 
 APP_NAME = "EPS Live Viewer"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 PROJECT_URL = "https://github.com/eternitylzt/EPSLiveViewer"
 BACKGROUND_MODES = ("transparent", "white", "custom")
 WHEEL_ACTIONS = ("zoom", "files", "pages")

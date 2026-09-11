@@ -119,7 +119,7 @@ class VideoExporter:
         )
 
     @staticmethod
-    def _read_raster(source: Path) -> QImage:
+    def read_raster(source: Path) -> QImage:
         reader = QImageReader(str(source))
         reader.setAutoTransform(True)
         image = reader.read()
@@ -138,7 +138,7 @@ class VideoExporter:
         cancel_event: threading.Event,
     ) -> QImage:
         if source.suffix.lower() not in {".eps", ".ps"}:
-            return self._read_raster(source)
+            return self.read_raster(source)
 
         # Vector sources are rasterized only for the requested video canvas.
         # 300 DPI covers most HD frames; larger canvases use up to 600 DPI.
@@ -151,7 +151,7 @@ class VideoExporter:
             guard_dimensions=True,
         )
         try:
-            return self._read_raster(rendered.png_path)
+            return self.read_raster(rendered.png_path)
         finally:
             self._renderer.cache.release(rendered.png_path)
 
@@ -196,9 +196,9 @@ class VideoExporter:
     @staticmethod
     def _ffmpeg_executable() -> Path:
         try:
-            import imageio_ffmpeg
+            from encoder import ffmpeg_executable
 
-            executable = Path(imageio_ffmpeg.get_ffmpeg_exe())
+            executable = ffmpeg_executable()
         except Exception as error:
             raise VideoExportError(tr("无法加载视频编码器：{error}", error=error)) from error
         if not executable.is_file():

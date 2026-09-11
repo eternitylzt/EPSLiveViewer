@@ -64,7 +64,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed ^
     --name EPSLiveViewer ^
     --icon "resources\icon.ico" ^
     --add-data "resources;resources" ^
-    --collect-all imageio_ffmpeg ^
+    --additional-hooks-dir hooks ^
     main.py
 if errorlevel 1 goto :failed
 if not exist "dist\EPSLiveViewer.exe" goto :failed

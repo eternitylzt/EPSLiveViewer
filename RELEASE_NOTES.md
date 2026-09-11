@@ -1,25 +1,25 @@
-# EPS Live Viewer 1.1.0
+# EPS Live Viewer 1.1.1
 
 ## 简体中文
 
-- 支持多页 EPS/PS：上下方向键翻页，状态栏显示页码，PNG 导出保存当前页。
-- 鼠标滚轮可设置为缩放、切换相邻文件或仅翻页；`Ctrl+滚轮` 始终可缩放。
-- 新增顶部快捷工具栏。
-- 新增简体中文/英语即时切换。
-- “关于”窗口新增版本号、GitHub 链接，并支持选择、复制文字。
-- 修复 macOS 从 Finder 或默认文件关联启动时只打开应用、不显示 EPS/PS 的问题。
-- macOS 应用清单注册 EPS/PS 文档类型；发布流程支持可选的 Developer ID 签名与 Apple 公证。
+- 优化 Windows 单文件打包，实测 EXE 从 68.16 MB 降至 51.92 MB，减少约 23.8%。
+- 移除程序未使用的 Qt 软件 OpenGL 回退库；当前界面和矢量预览继续使用 Qt Widgets 的二维绘制。
+- 完整保留内置 FFmpeg，通过无损压缩降低发行体积；首次制作视频时解压到临时目录，本次运行期间复用，退出后自动清理。
+- 合并视频窗口与视频导出中重复的 PNG/JPG 读取逻辑。
+- 保留已有全部功能和离线能力，不要求单独安装 FFmpeg。
 
-macOS Apple Silicon 和 Intel 分别提供 DMG。当前仓库未配置 Apple Developer 凭据时，产物仍为临时签名、未公证版本，首次启动需在 Finder 中按住 Control 点击应用并选择“打开”。EPS/PS 功能仍需系统 Ghostscript；发布包不要求 Python。
+已用三页 `20241001.eps` 完成源码及冻结程序回归检查，覆盖多页、缩放、三种滚轮操作、背景、相邻 EPS/PS、拖拽、自动刷新、当前页 PNG 导出、JPG 输入、MP4/GIF、比例裁剪、取消生成和中英文界面。
+
+本次体积优化针对 Windows。Linux 和 macOS 继续使用原有打包方式，功能和安装方法不变。EPS/PS 预览仍需系统 Ghostscript；发布包不要求 Python。
 
 ## English
 
-- Added multi-page EPS/PS support: Up/Down changes pages, the status bar shows page position, and PNG export saves the current page.
-- The mouse wheel can zoom, browse neighboring files, or change pages; `Ctrl+wheel` always zooms.
-- Added a top quick-access toolbar.
-- Added immediate Simplified Chinese/English switching.
-- The copyable About dialog now shows the version and GitHub project link.
-- Fixed macOS Finder/default-app launches opening the application without displaying the requested EPS/PS file.
-- Registered EPS/PS document types in the macOS bundle and added optional Developer ID signing and Apple notarization to the release workflow.
+- Optimized the Windows one-file package: the measured EXE decreased from 68.16 MB to 51.92 MB, a reduction of about 23.8%.
+- Removed Qt's unused software OpenGL fallback library; the interface and vector preview continue to use Qt Widgets' 2D painting path.
+- Kept the complete bundled FFmpeg executable and compressed it losslessly. It is extracted to a temporary directory on first video export, reused for the current session, and cleaned up on exit.
+- Consolidated duplicate PNG/JPG loading code shared by the video dialog and exporter.
+- Preserved all existing features and offline operation; no separate FFmpeg installation is required.
 
-Separate DMGs are provided for Apple Silicon and Intel. Without Apple Developer credentials configured in this repository, builds remain ad-hoc signed and unnotarized; Control-click the app in Finder and choose **Open** for the first launch. EPS/PS features still require system Ghostscript; Python is not required.
+Source and frozen-package regression checks used the supplied three-page `20241001.eps` and covered multipage navigation, zoom, all wheel modes, backgrounds, neighboring EPS/PS files, drag and drop, live refresh, current-page PNG export, JPEG input, MP4/GIF, proportional cropping, cancellation, and both interface languages.
+
+This size optimization targets Windows. Linux and macOS retain their established packaging, features, and installation method. EPS/PS preview still requires system Ghostscript; Python is not required.

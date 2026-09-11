@@ -130,7 +130,11 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-Windows 双击 `build.bat` 可继续生成原有单文件 `dist\EPSLiveViewer.exe`。Linux/macOS 可执行：
+Windows 双击 `build.bat` 可继续生成原有单文件 `dist\EPSLiveViewer.exe`。
+
+Windows 打包使用 `hooks/` 中的精简规则：移除本程序未使用的软件 OpenGL 库，将完整 FFmpeg 无损压缩后内置，首次制作视频时解压到临时目录，退出时清理。普通预览无需解压编码器，制作视频无需联网或另装 FFmpeg。请保留构建参数 `--additional-hooks-dir hooks`，不要同时使用 `--collect-all imageio_ffmpeg`，以免重复打包。图片读取由预览与视频导出共用；文件占用、取消、内存上限和原子保存等保护仍保留。
+
+Linux/macOS 可执行：
 
 ```bash
 chmod +x build_unix.sh

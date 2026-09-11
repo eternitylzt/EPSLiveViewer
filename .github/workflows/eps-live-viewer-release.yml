@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing or new release tag
         required: true
-        default: eps-live-viewer-v1.1.0
+        default: eps-live-viewer-v1.1.1
   push:
     tags:
       - "eps-live-viewer-v*"
@@ -57,7 +57,7 @@ jobs:
             --name EPSLiveViewer `
             --icon "resources\icon.ico" `
             --add-data "resources;resources" `
-            --collect-all imageio_ffmpeg `
+            --additional-hooks-dir hooks `
             main.py
           New-Item -ItemType Directory -Force package, packages | Out-Null
           Copy-Item dist\EPSLiveViewer.exe package\
