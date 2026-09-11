@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QInputDialog,
     QProgressDialog,
     QStyle,
     QTextBrowser,
@@ -47,6 +48,7 @@ from config import (
     SUPPORTED_SOURCE_SUFFIXES,
     filename_sort_key,
 )
+from color_dialog import ColorReplacementDialog
 from dialogs import PngExportDialog, SettingsDialog
 from eps_renderer import (
     EpsRenderCancelledError,
@@ -57,6 +59,7 @@ from eps_renderer import (
 )
 from file_monitor import EpsFileMonitor
 from i18n import set_language, tr
+from image_transforms import DocumentTransforms, TransformSnapshot
 from update_checker import (
     ReleaseInfo,
     check_latest_release,
@@ -129,6 +132,9 @@ class ExportRequest:
     background_mode: str
     background_color: str
     page_number: int = 1
+    all_pages: bool = False
+    page_count: int = 1
+    transforms: TransformSnapshot = TransformSnapshot()
 
 
 @dataclass(frozen=True)
@@ -155,15 +161,28 @@ class ExportWorker(QObject):
     @pyqtSlot()
     def run(self) -> None:
         try:
-            output = self._renderer.export_png(
-                self._request.source,
-                self._request.target,
-                dpi=self._request.dpi,
-                background=self._request.background_mode,
-                background_color=self._request.background_color,
-                cancel_event=self._cancel_event,
-                page_number=self._request.page_number,
-            )
+            if self._request.all_pages:
+                output = self._renderer.export_png_pages(
+                    self._request.source,
+                    self._request.target,
+                    self._request.page_count,
+                    dpi=self._request.dpi,
+                    background=self._request.background_mode,
+                    background_color=self._request.background_color,
+                    cancel_event=self._cancel_event,
+                    transforms=self._request.transforms,
+                )
+            else:
+                output = self._renderer.export_png(
+                    self._request.source,
+                    self._request.target,
+                    dpi=self._request.dpi,
+                    background=self._request.background_mode,
+                    background_color=self._request.background_color,
+                    cancel_event=self._cancel_event,
+                    page_number=self._request.page_number,
+                    transforms=self._request.transforms,
+                )
         except Exception as error:
             self.failed.emit(ExportFailure(self._request, error))
         else:
@@ -174,6 +193,12 @@ class ExportWorker(QObject):
 class PdfExportRequest:
     source: Path
     target: Path
+    transforms: TransformSnapshot = TransformSnapshot()
+    page_count: int = 1
+    current_page: int = 1
+    dpi: int = 300
+    background_mode: str = "transparent"
+    background_color: str = "#FFFFFF"
 
 
 @dataclass(frozen=True)
@@ -200,9 +225,15 @@ class PdfExportWorker(QObject):
     @pyqtSlot()
     def run(self) -> None:
         try:
-            output = self._renderer.export_pdf(
+            output = self._renderer.export_document(
                 self._request.source,
                 self._request.target,
+                self._request.transforms,
+                self._request.page_count,
+                self._request.current_page,
+                dpi=self._request.dpi,
+                background=self._request.background_mode,
+                background_color=self._request.background_color,
                 cancel_event=self._cancel_event,
             )
         except Exception as error:
@@ -297,6 +328,7 @@ class MainWindow(QMainWindow):
         self._sibling_index = -1
         self._current_page_index = 0
         self._page_count = 0
+        self._document_transforms: dict[Path, DocumentTransforms] = {}
         self._settings = QSettings()
 
         self.setWindowTitle(APP_NAME)
@@ -330,7 +362,7 @@ class MainWindow(QMainWindow):
     # ----- UI construction -------------------------------------------------
 
     def _create_actions(self) -> None:
-        self._open_action = QAction("打开 EPS/PS(&O)…", self)
+        self._open_action = QAction("打开图片(&O)…", self)
         self._open_action.setShortcut(QKeySequence.StandardKey.Open)
         self._open_action.triggered.connect(self._choose_file)
 
@@ -347,6 +379,12 @@ class MainWindow(QMainWindow):
         self._save_pdf_action = QAction("另存为 PDF(&D)…", self)
         self._save_pdf_action.setEnabled(False)
         self._save_pdf_action.triggered.connect(self._show_pdf_export_dialog)
+
+        self._save_postscript_action = QAction("另存为 EPS/PS(&E)…", self)
+        self._save_postscript_action.setEnabled(False)
+        self._save_postscript_action.triggered.connect(
+            self._show_postscript_export_dialog
+        )
 
         self._make_video_action = QAction("制作视频/动图(&V)…", self)
         self._make_video_action.setShortcut(QKeySequence("Ctrl+Shift+V"))
@@ -397,6 +435,30 @@ class MainWindow(QMainWindow):
         self._next_page_action.setEnabled(False)
         self._next_page_action.triggered.connect(lambda: self._navigate_page(1))
 
+        self._rotate_left_action = QAction("向左旋转 90°(&L)", self)
+        self._rotate_left_action.setShortcut(QKeySequence("Ctrl+Shift+["))
+        self._rotate_left_action.setEnabled(False)
+        self._rotate_left_action.triggered.connect(lambda: self._rotate_page(-90))
+
+        self._rotate_right_action = QAction("向右旋转 90°(&R)", self)
+        self._rotate_right_action.setShortcut(QKeySequence("Ctrl+Shift+]"))
+        self._rotate_right_action.setEnabled(False)
+        self._rotate_right_action.triggered.connect(lambda: self._rotate_page(90))
+
+        self._invert_colors_action = QAction("反转颜色(&I)", self)
+        self._invert_colors_action.setCheckable(True)
+        self._invert_colors_action.setShortcut(QKeySequence("Ctrl+Shift+I"))
+        self._invert_colors_action.setEnabled(False)
+        self._invert_colors_action.toggled.connect(self._set_inverted)
+
+        self._replace_colors_action = QAction("替换颜色(&C)…", self)
+        self._replace_colors_action.setEnabled(False)
+        self._replace_colors_action.triggered.connect(self._show_color_replacements)
+
+        self._reset_transforms_action = QAction("重置图像调整(&T)", self)
+        self._reset_transforms_action.setEnabled(False)
+        self._reset_transforms_action.triggered.connect(self._reset_transforms)
+
         self._about_action = QAction("关于(&A)", self)
         self._about_action.triggered.connect(self._show_about)
 
@@ -410,6 +472,7 @@ class MainWindow(QMainWindow):
         self._file_menu.addAction(self._reload_action)
         self._file_menu.addAction(self._save_png_action)
         self._file_menu.addAction(self._save_pdf_action)
+        self._file_menu.addAction(self._save_postscript_action)
         self._file_menu.addAction(self._make_video_action)
         self._file_menu.addSeparator()
         self._recent_menu = self._file_menu.addMenu("最近打开文件")
@@ -431,6 +494,14 @@ class MainWindow(QMainWindow):
         self._view_menu.addAction(self._fit_action)
         self._view_menu.addSeparator()
         self._view_menu.addAction(self._auto_refresh_action)
+
+        self._image_menu = menu_bar.addMenu("图像(&I)")
+        self._image_menu.addAction(self._rotate_left_action)
+        self._image_menu.addAction(self._rotate_right_action)
+        self._image_menu.addSeparator()
+        self._image_menu.addAction(self._invert_colors_action)
+        self._image_menu.addAction(self._replace_colors_action)
+        self._image_menu.addAction(self._reset_transforms_action)
 
         self._help_menu = menu_bar.addMenu("帮助(&H)")
         self._help_menu.addAction(self._check_updates_action)
@@ -464,6 +535,10 @@ class MainWindow(QMainWindow):
         self._toolbar.addAction(self._zoom_in_action)
         self._toolbar.addAction(self._fit_action)
         self._toolbar.addSeparator()
+        self._toolbar.addAction(self._rotate_left_action)
+        self._toolbar.addAction(self._rotate_right_action)
+        self._toolbar.addAction(self._invert_colors_action)
+        self._toolbar.addSeparator()
         self._toolbar.addAction(self._save_png_action)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self._toolbar)
 
@@ -486,15 +561,17 @@ class MainWindow(QMainWindow):
     def _choose_file(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(
             self,
-            tr("打开 EPS/PS 文件"),
+            tr("打开图片文件"),
             str(self._current_file.parent if self._current_file else Path.home()),
-            tr("EPS / PS 文件 (*.eps *.EPS *.ps *.PS);;所有文件 (*.*)"),
+            tr(
+                "支持的图片 (*.eps *.EPS *.ps *.PS *.png *.PNG *.jpg *.JPG *.jpeg *.JPEG);;所有文件 (*.*)"
+            ),
         )
         if filename:
             self.open_eps(filename)
 
     def open_eps(self, filename: str | Path) -> None:
-        """Open an EPS or PostScript path and queue a vector conversion."""
+        """Open a supported vector or raster image and queue its preview."""
         source = Path(filename).expanduser().resolve()
         if not source.is_file():
             self.show_nonfatal_error(
@@ -503,7 +580,8 @@ class MainWindow(QMainWindow):
             return
         if source.suffix.lower() not in SUPPORTED_SOURCE_SUFFIXES:
             self.show_nonfatal_error(
-                tr("打开失败"), tr("请选择扩展名为 .eps 或 .ps 的文件。")
+                tr("打开失败"),
+                tr("请选择 EPS、PS、PNG、JPG 或 JPEG 文件。"),
             )
             return
 
@@ -515,6 +593,7 @@ class MainWindow(QMainWindow):
             self._current_page_index = 0
             self._page_count = 0
             self._view.clear_document()
+            self._apply_current_transforms()
             self._monitor.set_file(source)
             self._refresh_sibling_navigation()
             self._page_size_label.setText(tr("页面：正在转换"))
@@ -525,8 +604,10 @@ class MainWindow(QMainWindow):
             self._reload_action.setEnabled(True)
             self._save_png_action.setEnabled(True)
             self._save_pdf_action.setEnabled(True)
+            self._save_postscript_action.setEnabled(True)
             self._previous_page_action.setEnabled(False)
             self._next_page_action.setEnabled(False)
+            self._set_transform_actions_enabled(True)
 
         self._automatic_failure_count = 0
         self._generation += 1
@@ -565,12 +646,12 @@ class MainWindow(QMainWindow):
         self._previous_file_action.setToolTip(
             tr("上一个：{name}", name=self._siblings[self._sibling_index - 1].name)
             if has_previous
-            else tr("没有上一个 EPS/PS 文件")
+            else tr("没有上一个图片文件")
         )
         self._next_file_action.setToolTip(
             tr("下一个：{name}", name=self._siblings[self._sibling_index + 1].name)
             if has_next
-            else tr("没有下一个 EPS/PS 文件")
+            else tr("没有下一个图片文件")
         )
         if self._current_file is not None:
             position = (
@@ -592,7 +673,70 @@ class MainWindow(QMainWindow):
         """Move within a multi-page EPS/PS document without reconversion."""
         if self._page_count <= 1:
             return
-        self._view.set_page(self._current_page_index + offset)
+        if self._view.set_page(self._current_page_index + offset):
+            self._apply_current_transforms()
+
+    def _current_transforms(self) -> DocumentTransforms:
+        if self._current_file is None:
+            return DocumentTransforms()
+        return self._document_transforms.setdefault(
+            self._current_file, DocumentTransforms()
+        )
+
+    def _set_transform_actions_enabled(self, enabled: bool) -> None:
+        for action in (
+            self._rotate_left_action,
+            self._rotate_right_action,
+            self._invert_colors_action,
+            self._replace_colors_action,
+            self._reset_transforms_action,
+        ):
+            action.setEnabled(enabled)
+
+    def _apply_current_transforms(self) -> None:
+        state = self._current_transforms()
+        self._invert_colors_action.blockSignals(True)
+        self._invert_colors_action.setChecked(state.inverted)
+        self._invert_colors_action.blockSignals(False)
+        self._view.set_visual_transforms(
+            state.rotation_for(self._current_page_index + 1),
+            state.inverted,
+            state.replacements,
+        )
+
+    def _rotate_page(self, degrees: int) -> None:
+        if self._current_file is None or self._page_count < 1:
+            return
+        rotation = self._current_transforms().rotate_page(
+            self._current_page_index + 1, degrees
+        )
+        self._apply_current_transforms()
+        self.statusBar().showMessage(
+            tr("当前页已旋转至 {degrees}°", degrees=rotation), 2500
+        )
+
+    def _set_inverted(self, inverted: bool) -> None:
+        if self._current_file is None:
+            return
+        self._current_transforms().inverted = bool(inverted)
+        self._apply_current_transforms()
+
+    def _show_color_replacements(self) -> None:
+        if self._current_file is None:
+            return
+        state = self._current_transforms()
+        dialog = ColorReplacementDialog(state.replacements, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        state.replacements = dialog.replacements()
+        self._apply_current_transforms()
+
+    def _reset_transforms(self) -> None:
+        if self._current_file is None:
+            return
+        self._document_transforms[self._current_file] = DocumentTransforms()
+        self._apply_current_transforms()
+        self.statusBar().showMessage(tr("已重置当前文件的图像调整"), 2500)
 
     def _recent_files(self) -> list[str]:
         saved = self._settings.value("recentFiles", [])
@@ -702,6 +846,7 @@ class MainWindow(QMainWindow):
             self._renderer.cache.release(result.pdf_path)
             self._handle_preview_error(request, error)
             return
+        self._apply_current_transforms()
         self._current_pdf = result.pdf_path
         self._add_recent_file(result.source)
         self._automatic_failure_count = 0
@@ -738,7 +883,7 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(500, lambda req=request: self._retry_preview(req))
             return
         title = (
-            tr("EPS/PS 文件无法解析")
+            tr("文件无法解析")
             if isinstance(error, EpsRenderError)
             else tr("预览失败")
         )
@@ -790,16 +935,28 @@ class MainWindow(QMainWindow):
                 f"{initial_output.stem}_page{self._current_page_index + 1}.png"
             )
         dialog = PngExportDialog(
-            initial_output, self._config.export_dpi, self
+            initial_output,
+            self._config.export_dpi,
+            page_count=self._page_count,
+            parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        target, dpi = dialog.get_values()
-        if target.exists():
+        target, dpi, all_pages = dialog.get_values()
+        output = (
+            target.parent / f"{target.stem}_pages" if all_pages else target
+        )
+        if output.exists():
+            if all_pages:
+                self.show_nonfatal_error(
+                    tr("PNG 导出失败"),
+                    tr("目标文件夹已存在，请更换文件名：\n{path}", path=output),
+                )
+                return
             answer = QMessageBox.question(
                 self,
                 tr("覆盖 PNG 文件"),
-                tr("文件已存在，是否覆盖？\n{path}", path=target),
+                tr("文件已存在，是否覆盖？\n{path}", path=output),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -808,11 +965,14 @@ class MainWindow(QMainWindow):
         self._start_export(
             ExportRequest(
                 self._current_file,
-                target,
+                output,
                 dpi,
                 self._config.background_mode,
                 self._config.background_color,
                 self._current_page_index + 1,
+                all_pages,
+                self._page_count,
+                self._current_transforms().snapshot(),
             )
         )
 
@@ -897,14 +1057,97 @@ class MainWindow(QMainWindow):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        self._start_pdf_export(PdfExportRequest(self._current_file, target))
+        self._prepare_document_export(target)
+
+    def _show_postscript_export_dialog(self) -> None:
+        if self._current_file is None:
+            return
+        initial_suffix = (
+            self._current_file.suffix
+            if self._page_count == 1
+            and self._current_file.suffix.lower() in {".eps", ".ps"}
+            else ".ps"
+        )
+        initial_output = self._current_file.with_name(
+            f"{self._current_file.stem}_adjusted{initial_suffix}"
+        )
+        filename, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            tr("另存为 EPS/PS"),
+            str(initial_output),
+            tr("PostScript 文件 (*.ps);;EPS 文件 (*.eps)"),
+        )
+        if not filename:
+            return
+        target = Path(filename).expanduser()
+        if target.suffix.lower() not in {".eps", ".ps"}:
+            target = target.with_suffix(
+                ".eps" if "*.eps" in selected_filter.lower() else ".ps"
+            )
+        self._prepare_document_export(target.resolve())
+
+    def _prepare_document_export(self, target: Path) -> None:
+        if self._current_file is None:
+            return
+        if target == self._current_file:
+            self.show_nonfatal_error(
+                tr("无法导出"), tr("输出文件不能覆盖当前打开的源文件。")
+            )
+            return
+        if target.suffix.lower() == ".eps" and self._page_count > 1:
+            QMessageBox.information(
+                self,
+                tr("EPS 仅支持单页"),
+                tr("标准 EPS 只能包含一页，因此将导出当前显示的第 {page} 页。", page=self._current_page_index + 1),
+            )
+        if target.exists():
+            answer = QMessageBox.question(
+                self,
+                tr("覆盖输出文件"),
+                tr("文件已存在，是否覆盖？\n{path}", path=target),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        transforms = self._current_transforms().snapshot()
+        dpi = self._config.export_dpi
+        if (
+            transforms.replacements
+            or self._current_file.suffix.lower() in {".png", ".jpg", ".jpeg"}
+        ):
+            dpi, accepted = QInputDialog.getInt(
+                self,
+                tr("调色文档导出"),
+                tr("此文档将使用位图页面封装。请选择输出 DPI："),
+                dpi,
+                72,
+                600,
+                50,
+            )
+            if not accepted:
+                return
+        self._start_pdf_export(
+            PdfExportRequest(
+                self._current_file,
+                target,
+                transforms,
+                self._page_count,
+                self._current_page_index + 1,
+                dpi,
+                self._config.background_mode,
+                self._config.background_color,
+            )
+        )
 
     def _start_pdf_export(self, request: PdfExportRequest) -> None:
         if self._pdf_export_thread is not None:
-            self.statusBar().showMessage(tr("已有 PDF 导出任务正在进行。"), 4000)
+            self.statusBar().showMessage(tr("已有文档导出任务正在进行。"), 4000)
             return
         self._save_pdf_action.setEnabled(False)
-        self.statusBar().showMessage(tr("正在导出矢量 PDF…"))
+        self._save_postscript_action.setEnabled(False)
+        self.statusBar().showMessage(tr("正在导出文档…"))
         thread = QThread(self)
         worker = PdfExportWorker(self._renderer, request)
         worker.moveToThread(thread)
@@ -926,21 +1169,21 @@ class MainWindow(QMainWindow):
     def _on_pdf_export_succeeded(self, output: Path) -> None:
         if self._closing:
             return
-        self.statusBar().showMessage(tr("PDF 已保存：{path}", path=output), 6000)
+        self.statusBar().showMessage(tr("文档已保存：{path}", path=output), 6000)
         QMessageBox.information(
-            self, tr("PDF 导出完成"), tr("已保存：\n{path}", path=output)
+            self, tr("文档导出完成"), tr("已保存：\n{path}", path=output)
         )
 
     @pyqtSlot(object)
     def _on_pdf_export_failed(self, failure: PdfExportFailure) -> None:
         if self._closing or isinstance(failure.error, EpsRenderCancelledError):
             return
-        message = str(failure.error) or tr("PDF 导出失败。")
+        message = str(failure.error) or tr("文档导出失败。")
         self.statusBar().showMessage(message, 6000)
         title = (
             tr("未找到 Ghostscript")
             if isinstance(failure.error, GhostscriptNotFoundError)
-            else tr("PDF 导出失败")
+            else tr("文档导出失败")
         )
         self.show_nonfatal_error(title, message)
 
@@ -951,6 +1194,7 @@ class MainWindow(QMainWindow):
         self._pdf_export_worker = None
         if not self._closing:
             self._save_pdf_action.setEnabled(self._current_file is not None)
+            self._save_postscript_action.setEnabled(self._current_file is not None)
 
     # ----- Folder sequence video/GIF export ------------------------------
 
@@ -966,7 +1210,16 @@ class MainWindow(QMainWindow):
             if saved_folder
             else Path.home()
         )
-        dialog = VideoCreationDialog(initial_folder, self._renderer, self)
+        snapshots = {
+            path: state.snapshot()
+            for path, state in self._document_transforms.items()
+        }
+        dialog = VideoCreationDialog(
+            initial_folder,
+            self._renderer,
+            transforms_by_source=snapshots,
+            parent=self,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         request = dialog.request()
@@ -981,7 +1234,9 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
         if request.sources:
-            self._settings.setValue("lastVideoFolder", str(request.sources[0].parent))
+            first_source = request.sources[0]
+            first_path = getattr(first_source, "path", first_source)
+            self._settings.setValue("lastVideoFolder", str(Path(first_path).parent))
         self._start_video_export(request)
 
     def _start_video_export(self, request: VideoExportRequest) -> None:
@@ -1067,10 +1322,11 @@ class MainWindow(QMainWindow):
 
     def _retranslate_ui(self) -> None:
         action_texts = (
-            (self._open_action, "打开 EPS/PS(&O)…"),
+            (self._open_action, "打开图片(&O)…"),
             (self._reload_action, "重新加载(&R)"),
             (self._save_png_action, "另存为 PNG(&S)…"),
             (self._save_pdf_action, "另存为 PDF(&D)…"),
+            (self._save_postscript_action, "另存为 EPS/PS(&E)…"),
             (self._make_video_action, "制作视频/动图(&V)…"),
             (self._settings_action, "设置(&P)…"),
             (self._exit_action, "退出(&X)"),
@@ -1082,6 +1338,11 @@ class MainWindow(QMainWindow):
             (self._next_file_action, "下一个文件(&N)"),
             (self._previous_page_action, "上一页(&U)"),
             (self._next_page_action, "下一页(&D)"),
+            (self._rotate_left_action, "向左旋转 90°(&L)"),
+            (self._rotate_right_action, "向右旋转 90°(&R)"),
+            (self._invert_colors_action, "反转颜色(&I)"),
+            (self._replace_colors_action, "替换颜色(&C)…"),
+            (self._reset_transforms_action, "重置图像调整(&T)"),
             (self._check_updates_action, "检查更新(&U)…"),
             (self._about_action, "关于(&A)"),
         )
@@ -1090,6 +1351,7 @@ class MainWindow(QMainWindow):
         self._file_menu.setTitle(tr("文件(&F)"))
         self._recent_menu.setTitle(tr("最近打开文件"))
         self._view_menu.setTitle(tr("查看(&V)"))
+        self._image_menu.setTitle(tr("图像(&I)"))
         self._help_menu.setTitle(tr("帮助(&H)"))
         self._toolbar.setWindowTitle(tr("快捷工具"))
         self._update_recent_menu()
@@ -1227,14 +1489,13 @@ class MainWindow(QMainWindow):
         content.setHtml(
             f"<h2>{APP_NAME}</h2>"
             f"<p><b>{tr('版本 {version}', version=APP_VERSION)}</b></p>"
-            f"<p>{tr('用于科研绘图过程中快速查看并实时刷新 EPS/PS 文件。')}</p>"
+            f"<p>{tr('用于快速查看 EPS/PS/PNG/JPG，并实时刷新当前文件。')}</p>"
             f"<h3>{tr('使用要点')}</h3>"
-            f"<ul><li>{tr('打开或拖入 EPS/PS 文件；文件重新生成后会自动刷新。')}</li>"
+            f"<ul><li>{tr('打开或拖入支持的图片；文件重新生成后会自动刷新。')}</li>"
             f"<li>{tr('左右方向键切换相邻文件，上下方向键切换多页文档。')}</li>"
             f"<li>{tr('滚轮行为可在设置中选择；Ctrl+滚轮始终可缩放。')}</li>"
-            f"<li>{tr('工具栏可直接缩放、适应窗口、翻页、切换文件和保存 PNG。')}</li>"
-            f"<li>{tr('可将当前 EPS/PS 完整保存为多页矢量 PDF。')}</li>"
-            f"<li>{tr('可将 EPS/PS/PNG/JPG 序列制作成 MP4/GIF。')}</li></ul>"
+            f"<li>{tr('可旋转、反转或替换颜色，并将调整结果导出为 PNG/PDF/PS/EPS。')}</li>"
+            f"<li>{tr('多页文档可逐页导出 PNG，或将所有页面和相邻图片制作成 MP4/GIF。')}</li></ul>"
             f"<h3>{tr('作者')}</h3>"
             "<p>Zhentong Li<br>eternitylzt@gmail.com</p>"
             f"<p><b>{tr('项目主页')}：</b> "

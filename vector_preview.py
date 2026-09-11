@@ -44,6 +44,7 @@ from PyQt6 import sip
 
 from config import SUPPORTED_SOURCE_SUFFIXES
 from i18n import tr
+from image_transforms import ColorReplacement, adjusted_color, apply_color_adjustments
 
 
 class VectorPreviewError(RuntimeError):
@@ -247,6 +248,9 @@ class VectorGraphicsView(QGraphicsView):
         self._background_mode = "transparent"
         self._background_color = QColor("#FFFFFF")
         self._wheel_action = "zoom"
+        self._rotation = 0
+        self._invert_colors = False
+        self._color_replacements: tuple[ColorReplacement, ...] = ()
         self._navigation_wheel_remainder = 0
         self._closed = False
 
@@ -315,7 +319,7 @@ class VectorGraphicsView(QGraphicsView):
     def page_size_points(self) -> tuple[float, float] | None:
         if self._page_item is None:
             return None
-        rect = self._page_item.boundingRect()
+        rect = self._page_item.sceneBoundingRect()
         return rect.width(), rect.height()
 
     def current_page_index(self) -> int:
@@ -336,6 +340,54 @@ class VectorGraphicsView(QGraphicsView):
             parsed = QColor("#FFFFFF")
         self._background_mode = mode
         self._background_color = parsed
+        self.viewport().update()
+
+    def set_visual_transforms(
+        self,
+        rotation: int = 0,
+        inverted: bool = False,
+        replacements: tuple[ColorReplacement, ...] = (),
+    ) -> None:
+        """Apply session transforms and refresh tiles from the vector document."""
+        rotation = int(rotation) % 360
+        if rotation not in {0, 90, 180, 270}:
+            rotation = 0
+        rotation_changed = rotation != self._rotation
+        colors_changed = (
+            bool(inverted) != self._invert_colors
+            or tuple(replacements) != self._color_replacements
+        )
+        self._rotation = rotation
+        self._invert_colors = bool(inverted)
+        self._color_replacements = tuple(replacements)
+
+        if self._page_item is not None and rotation_changed:
+            self._apply_item_rotation()
+            if self._fit_mode:
+                self.fit_to_window()
+            else:
+                self.centerOn(self._page_item)
+                self._emit_zoom()
+            size = self.page_size_points()
+            if size is not None:
+                self.image_loaded.emit(*size)
+        if self._page_item is not None and colors_changed:
+            self._page_item.clear_cache()
+            self._queued.clear()
+            self._queued_keys.clear()
+            context = self._active_context
+            if context is not None and context.active:
+                page = self._page_item.boundingRect()
+                self._request_overview(context, page.width(), page.height())
+            self._schedule_detail(immediate=True)
+
+    def _apply_item_rotation(self) -> None:
+        item = self._page_item
+        if item is None:
+            return
+        item.setTransformOriginPoint(item.boundingRect().center())
+        item.setRotation(self._rotation)
+        self._scene.setSceneRect(item.sceneBoundingRect())
         self.viewport().update()
 
     def load_pdf(
@@ -362,7 +414,7 @@ class VectorGraphicsView(QGraphicsView):
         if error != QPdfDocument.Error.None_ or document.status() != QPdfDocument.Status.Ready:
             document.close()
             sip.delete(document)
-            raise VectorPreviewError(tr("QtPdf 无法加载 Ghostscript 生成的预览 PDF。"))
+            raise VectorPreviewError(tr("QtPdf 无法加载预览文档。"))
         if document.pageCount() < 1:
             document.close()
             sip.delete(document)
@@ -409,7 +461,7 @@ class VectorGraphicsView(QGraphicsView):
 
         self._page_item = _PdfPageItem(point_size)
         self._scene.addItem(self._page_item)
-        self._scene.setSceneRect(self._page_item.boundingRect())
+        self._apply_item_rotation()
         self._active_context = context
         self._page_index = page_index
         self._page_count = page_count
@@ -464,7 +516,7 @@ class VectorGraphicsView(QGraphicsView):
             self._scene.removeItem(self._page_item)
         self._page_item = _PdfPageItem(point_size)
         self._scene.addItem(self._page_item)
-        self._scene.setSceneRect(self._page_item.boundingRect())
+        self._apply_item_rotation()
         self._page_index = page_index
 
         if self._fit_mode:
@@ -559,7 +611,7 @@ class VectorGraphicsView(QGraphicsView):
         painter.fillRect(rect, QColor(46, 48, 52))
         if self._page_item is None:
             return
-        page = self._page_item.boundingRect()
+        page = self._page_item.sceneBoundingRect()
         visible_page = rect.intersected(page)
         if visible_page.isEmpty():
             return
@@ -573,9 +625,23 @@ class VectorGraphicsView(QGraphicsView):
                 checker.setTransform(inverse)
             painter.fillRect(visible_page, checker)
         elif self._background_mode == "white":
-            painter.fillRect(visible_page, QColor("#FFFFFF"))
+            painter.fillRect(
+                visible_page,
+                adjusted_color(
+                    QColor("#FFFFFF"),
+                    self._invert_colors,
+                    self._color_replacements,
+                ),
+            )
         else:
-            painter.fillRect(visible_page, self._background_color)
+            painter.fillRect(
+                visible_page,
+                adjusted_color(
+                    self._background_color,
+                    self._invert_colors,
+                    self._color_replacements,
+                ),
+            )
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # type: ignore[override]
         del rect
@@ -585,7 +651,7 @@ class VectorGraphicsView(QGraphicsView):
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(self._page_item.boundingRect())
+        painter.drawRect(self._page_item.sceneBoundingRect())
 
     def clear_document(self) -> None:
         self._detail_timer.stop()
@@ -632,8 +698,9 @@ class VectorGraphicsView(QGraphicsView):
     def _visible_page_rect(self) -> QRectF:
         if self._page_item is None:
             return QRectF()
-        visible = self.mapToScene(self.viewport().rect()).boundingRect()
-        return visible.intersected(self._page_item.boundingRect())
+        visible_scene = self.mapToScene(self.viewport().rect())
+        visible_item = self._page_item.mapFromScene(visible_scene).boundingRect()
+        return visible_item.intersected(self._page_item.boundingRect())
 
     def _refresh_visible_tiles(self) -> None:
         context = self._active_context
@@ -783,6 +850,11 @@ class VectorGraphicsView(QGraphicsView):
             if image.isNull():
                 self.render_error.emit(tr("QtPdf 无法渲染预览区域。"))
             else:
+                image = apply_color_adjustments(
+                    image,
+                    self._invert_colors,
+                    self._color_replacements,
+                )
                 pixmap = QPixmap.fromImage(image)
                 if request.kind == "overview":
                     self._page_item.set_overview(pixmap)

@@ -18,6 +18,11 @@ from PyQt6.QtGui import QColor, QImage, QImageReader, QPainter
 from config import VIDEO_SOURCE_SUFFIXES
 from eps_renderer import EpsRenderCancelledError, EpsRenderer
 from i18n import tr
+from image_transforms import (
+    TransformSnapshot,
+    adjusted_color,
+    apply_page_transforms,
+)
 
 
 MAX_VIDEO_PIXELS = 33_177_600  # 7680 x 4320 (8K UHD)
@@ -33,10 +38,29 @@ class VideoExportCancelled(VideoExportError):
 
 
 @dataclass(frozen=True)
+class VideoFrameSource:
+    """One raster frame or one numbered page of a vector source."""
+
+    path: Path
+    page_number: int = 1
+    transforms: TransformSnapshot = TransformSnapshot()
+
+    @property
+    def display_name(self) -> str:
+        if self.path.suffix.lower() in {".eps", ".ps"}:
+            return tr(
+                "{name}（第 {page} 页）",
+                name=self.path.name,
+                page=self.page_number,
+            )
+        return self.path.name
+
+
+@dataclass(frozen=True)
 class VideoExportRequest:
     """Immutable options for one animation/video job."""
 
-    sources: tuple[Path, ...]
+    sources: tuple[Path | VideoFrameSource, ...]
     target: Path
     output_format: str
     width: int
@@ -94,21 +118,32 @@ class VideoExporter:
                 max(0.0, min(1.0 - y, height)),
             )
 
-        sources = tuple(Path(item).resolve() for item in request.sources)
-        for source in sources:
+        sources: list[VideoFrameSource] = []
+        for item in request.sources:
+            frame = (
+                item
+                if isinstance(item, VideoFrameSource)
+                else VideoFrameSource(Path(item), 1)
+            )
+            source = Path(frame.path).resolve()
             if not source.is_file():
                 raise VideoExportError(tr("找不到序列文件：{path}", path=source))
             if source.suffix.lower() not in VIDEO_SOURCE_SUFFIXES:
                 raise VideoExportError(
                     tr("不支持的序列文件格式：{name}", name=source.name)
                 )
+            if frame.page_number < 1:
+                raise VideoExportError(tr("视频帧页码无效。"))
+            sources.append(
+                VideoFrameSource(source, frame.page_number, frame.transforms)
+            )
 
         target = Path(request.target).expanduser()
         if target.name in {"", ".", ".."}:
             raise VideoExportError(tr("输出文件名无效。"))
         target = target.with_suffix(f".{output_format}").resolve()
         return VideoExportRequest(
-            sources,
+            tuple(sources),
             target,
             output_format,
             request.width,
@@ -133,12 +168,18 @@ class VideoExporter:
 
     def _read_source(
         self,
-        source: Path,
+        frame: VideoFrameSource,
         request: VideoExportRequest,
         cancel_event: threading.Event,
     ) -> QImage:
+        source = frame.path
         if source.suffix.lower() not in {".eps", ".ps"}:
-            return self.read_raster(source)
+            image = self._composite_background(
+                self.read_raster(source), request.background_color
+            )
+            return apply_page_transforms(
+                image, frame.transforms, frame.page_number, cancel_event
+            )
 
         # Vector sources are rasterized only for the requested video canvas.
         # 300 DPI covers most HD frames; larger canvases use up to 600 DPI.
@@ -149,11 +190,26 @@ class VideoExporter:
             dpi=dpi,
             cancel_event=cancel_event,
             guard_dimensions=True,
+            page_number=frame.page_number,
         )
         try:
-            return self.read_raster(rendered.png_path)
+            image = self._composite_background(
+                self.read_raster(rendered.png_path), request.background_color
+            )
+            return apply_page_transforms(
+                image, frame.transforms, frame.page_number, cancel_event
+            )
         finally:
             self._renderer.cache.release(rendered.png_path)
+
+    @staticmethod
+    def _composite_background(image: QImage, color: str) -> QImage:
+        composed = QImage(image.size(), QImage.Format.Format_ARGB32)
+        composed.fill(QColor(color))
+        painter = QPainter(composed)
+        painter.drawImage(0, 0, image)
+        painter.end()
+        return composed
 
     @staticmethod
     def _crop_image(image: QImage, request: VideoExportRequest) -> QImage:
@@ -173,13 +229,23 @@ class VideoExporter:
         return image.copy(left, top, right - left, bottom - top)
 
     @staticmethod
-    def _fit_to_canvas(image: QImage, request: VideoExportRequest) -> QImage:
+    def _fit_to_canvas(
+        image: QImage,
+        request: VideoExportRequest,
+        transforms: TransformSnapshot = TransformSnapshot(),
+    ) -> QImage:
         canvas = QImage(
             request.width,
             request.height,
             QImage.Format.Format_RGB32,
         )
-        canvas.fill(QColor(request.background_color))
+        canvas.fill(
+            adjusted_color(
+                QColor(request.background_color),
+                transforms.inverted,
+                transforms.replacements,
+            )
+        )
         scaled = image.scaled(
             request.width,
             request.height,
@@ -278,14 +344,26 @@ class VideoExporter:
         encoded = staging / f"encoded.{request.output_format}"
         total_steps = len(request.sources) + 1
         try:
-            for index, source in enumerate(request.sources):
+            for index, item in enumerate(request.sources):
+                frame_source = (
+                    item
+                    if isinstance(item, VideoFrameSource)
+                    else VideoFrameSource(Path(item), 1)
+                )
+                source = frame_source.path
                 self._raise_if_cancelled(cancel_event)
                 if progress:
-                    progress(index, total_steps, tr("正在准备：{name}", name=source.name))
+                    progress(
+                        index,
+                        total_steps,
+                        tr("正在准备：{name}", name=frame_source.display_name),
+                    )
                 try:
-                    image = self._read_source(source, request, cancel_event)
+                    image = self._read_source(frame_source, request, cancel_event)
                     image = self._crop_image(image, request)
-                    frame = self._fit_to_canvas(image, request)
+                    frame = self._fit_to_canvas(
+                        image, request, frame_source.transforms
+                    )
                     frame_path = staging / f"frame_{index:06d}.png"
                     if not frame.save(str(frame_path), "PNG"):
                         raise VideoExportError(

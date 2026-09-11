@@ -43,6 +43,7 @@ class PngExportOptions:
 
     path: Path
     dpi: int
+    all_pages: bool = False
 
 
 def _joined_row(field: QWidget, button: QPushButton) -> QWidget:
@@ -84,7 +85,7 @@ class SettingsDialog(QDialog):
             "Ghostscript：", _joined_row(self._ghostscript_edit, browse_gs_button)
         )
 
-        self._auto_refresh_check = QCheckBox(tr("EPS/PS 文件变化后自动刷新"))
+        self._auto_refresh_check = QCheckBox(tr("当前文件变化后自动刷新"))
         self._auto_refresh_check.toggled.connect(self._sync_enabled_states)
         runtime_form.addRow("", self._auto_refresh_check)
 
@@ -242,6 +243,7 @@ class PngExportDialog(QDialog):
         self,
         initial_path: str | Path,
         initial_dpi: int = 300,
+        page_count: int = 1,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -267,6 +269,10 @@ class PngExportDialog(QDialog):
             max(MIN_EXPORT_DPI, min(int(initial_dpi), MAX_EXPORT_DPI))
         )
         form.addRow(tr("分辨率："), self._dpi_spin)
+        self._all_pages_check = QCheckBox(tr("导出所有页面到新文件夹"))
+        self._all_pages_check.setEnabled(page_count > 1)
+        self._all_pages_check.setChecked(page_count > 1)
+        form.addRow("", self._all_pages_check)
         root.addLayout(form)
 
         note = QLabel(tr("PNG 是位图格式；DPI 越高，导出细节越丰富，文件也越大。"))
@@ -327,7 +333,11 @@ class PngExportDialog(QDialog):
             return
 
         self._path_edit.setText(str(path))
-        self._options = PngExportOptions(path=path, dpi=self._dpi_spin.value())
+        self._options = PngExportOptions(
+            path=path,
+            dpi=self._dpi_spin.value(),
+            all_pages=self._all_pages_check.isChecked(),
+        )
         super().accept()
 
     def options(self) -> PngExportOptions:
@@ -336,7 +346,7 @@ class PngExportDialog(QDialog):
             raise RuntimeError("PNG export options are available only after acceptance.")
         return self._options
 
-    def get_values(self) -> tuple[Path, int]:
-        """Return ``(path, dpi)`` after the dialog has been accepted."""
+    def get_values(self) -> tuple[Path, int, bool]:
+        """Return ``(path, dpi, all_pages)`` after acceptance."""
         options = self.options()
-        return options.path, options.dpi
+        return options.path, options.dpi, options.all_pages

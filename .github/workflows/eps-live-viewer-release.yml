@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing or new release tag
         required: true
-        default: eps-live-viewer-v1.3.0
+        default: eps-live-viewer-v2.0.0
   push:
     tags:
       - "eps-live-viewer-v*"

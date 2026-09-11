@@ -69,7 +69,7 @@ def main() -> int:
     if pending_file_opens:
         window.open_eps(pending_file_opens[-1])
 
-    # Explorer and a command prompt can pass an EPS or PS path as the first argument.
+    # Explorer/Finder and a command prompt can pass a supported path as argument one.
     startup_arguments = [
         argument for argument in sys.argv[1:] if not argument.startswith("-psn_")
     ]

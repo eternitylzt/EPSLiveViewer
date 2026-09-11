@@ -25,8 +25,15 @@ from dialogs import SettingsDialog
 from encoder import ffmpeg_executable
 from eps_renderer import EpsRenderError
 from i18n import set_language
+from image_transforms import ColorReplacement, TransformSnapshot
 from main import EpsApplication
-from video_creator import VideoExporter, VideoExportRequest, VideoExportCancelled
+from video_creator import (
+    VideoExporter,
+    VideoExportCancelled,
+    VideoExportRequest,
+    VideoFrameSource,
+)
+from video_dialog import VideoCreationDialog
 from viewer import MainWindow
 
 
@@ -98,6 +105,14 @@ def run():
             wait_for(app, lambda: window._current_pdf != old_pdf)
 
             renderer = window._renderer
+            window._rotate_right_action.trigger()
+            window._invert_colors_action.setChecked(True)
+            assert window._current_transforms().rotation_for(
+                window._current_page_index + 1
+            ) == 90
+            assert window._current_transforms().inverted
+            assert not window._view.grab().isNull()
+
             png1 = renderer.export_png(eps, root / "page1.png", dpi=72, page_number=1)
             png2 = renderer.export_png(eps, root / "page2.png", dpi=72, page_number=2,
                                        background="custom", background_color="#123456")
@@ -110,6 +125,51 @@ def run():
             assert document.pageCount() == page_count
             document.close()
             sip.delete(document)
+            transformed = TransformSnapshot(
+                True,
+                (ColorReplacement("#000000", "#FFFFFF", 8),),
+                ((1, 90), (2, 180), (3, 270)),
+            )
+            all_pages = renderer.export_png_pages(
+                eps,
+                root / "all_pages",
+                page_count,
+                dpi=72,
+                transforms=transformed,
+            )
+            assert len(list(all_pages.glob("*.png"))) == page_count
+            transformed_pdf = renderer.export_document(
+                eps,
+                root / "transformed.pdf",
+                TransformSnapshot(True, (), ((1, 90),)),
+                page_count,
+                1,
+                dpi=72,
+            )
+            document = QPdfDocument(None)
+            assert document.load(str(transformed_pdf)) == QPdfDocument.Error.None_
+            assert document.pageCount() == page_count
+            assert document.pagePointSize(0).width() > document.pagePointSize(0).height()
+            document.close()
+            sip.delete(document)
+            transformed_ps = renderer.export_document(
+                eps,
+                root / "transformed.ps",
+                TransformSnapshot(True, (), ((2, 90),)),
+                page_count,
+                2,
+                dpi=72,
+            )
+            transformed_eps = renderer.export_document(
+                eps,
+                root / "transformed.eps",
+                TransformSnapshot(True, (), ((2, 90),)),
+                page_count,
+                2,
+                dpi=72,
+            )
+            assert renderer.page_count(transformed_ps) == page_count
+            assert renderer.page_count(transformed_eps) == 1
             existing = root / "existing.pdf"
             existing.write_bytes(b"keep existing output")
             broken = root / "broken.eps"
@@ -124,6 +184,37 @@ def run():
             jpg = root / "frame.jpg"
             assert frame.save(str(jpg), "JPG")
             assert VideoExporter.read_raster(jpg).size() == frame.size()
+            raster_transforms = TransformSnapshot(
+                True,
+                (ColorReplacement("#00FFFF", "#00FF00", 8),),
+                ((1, 90),),
+            )
+            adjusted_raster = renderer.export_png(
+                jpg,
+                root / "adjusted_raster.png",
+                transforms=raster_transforms,
+            )
+            adjusted_image = QImage(str(adjusted_raster))
+            assert adjusted_image.size() == frame.size().transposed()
+            assert adjusted_image.pixelColor(0, 0).green() > 240
+            sequence_folder = root / "sequence_sources"
+            sequence_folder.mkdir()
+            sequence_eps = sequence_folder / eps.name
+            sequence_eps.write_bytes(eps.read_bytes())
+            sequence_jpg = sequence_folder / jpg.name
+            sequence_jpg.write_bytes(jpg.read_bytes())
+            sequence_dialog = VideoCreationDialog(
+                sequence_folder,
+                renderer,
+                {sequence_eps: TransformSnapshot(False, (), ((1, 90),))},
+                window,
+            )
+            assert sequence_dialog._included.count() == page_count + 1
+            assert sequence_dialog.selected_frames()[0].page_number == 1
+            sequence_dialog.close()
+            window.open_eps(jpg)
+            wait_for(app, lambda: window._current_file == jpg and window._page_count == 1)
+            assert not window._view.grab().isNull()
             exporter = VideoExporter(renderer)
             started = time.monotonic()
             ffmpeg = ffmpeg_executable()
@@ -150,6 +241,28 @@ def run():
                     raise AssertionError("Cancellation was ignored")
                 except VideoExportCancelled:
                     assert target.read_bytes() == original
+            page_gif = root / "multipage.gif"
+            exporter.create(
+                VideoExportRequest(
+                    tuple(
+                        VideoFrameSource(
+                            eps,
+                            page,
+                            TransformSnapshot(False, (), ((page, 90 if page == 1 else 0),)),
+                        )
+                        for page in range(1, page_count + 1)
+                    ),
+                    page_gif,
+                    "gif",
+                    80,
+                    64,
+                    4,
+                ),
+                threading.Event(),
+            )
+            reader = QImageReader(str(page_gif))
+            assert reader.imageCount() == page_count
+            reader.setFileName("")
             for language in ("en", "zh_CN"):
                 window._config.language = language
                 set_language(language)
@@ -160,7 +273,7 @@ def run():
                 settings = SettingsDialog(window._config, window)
                 assert settings.get_config().language == language
                 settings.close()
-            print("PASS: multipage, zoom, wheel, backgrounds, EPS/PS navigation, drop, live refresh, PNG/PDF/JPG, atomic PDF failure, MP4/GIF, crop, cancellation, languages, update menu", flush=True)
+            print("PASS: multipage preview/PNG/video, rotation, inversion, color replacement, EPS/PS/PDF export, PNG/JPG opening, zoom, navigation, drop, live refresh, MP4/GIF, crop, cancellation, languages, update menu", flush=True)
         finally:
             window.close()
             app.processEvents()

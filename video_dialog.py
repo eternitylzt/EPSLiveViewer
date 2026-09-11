@@ -34,7 +34,8 @@ from config import VIDEO_SOURCE_SUFFIXES, filename_sort_key
 from crop_dialog import CropSelectionDialog, NormalizedCrop
 from eps_renderer import EpsRenderer
 from i18n import tr
-from video_creator import VideoExporter, VideoExportRequest
+from image_transforms import TransformSnapshot, apply_page_transforms
+from video_creator import VideoExporter, VideoExportRequest, VideoFrameSource
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class VideoCreationDialog(QDialog):
         self,
         initial_folder: Path,
         renderer: EpsRenderer,
+        transforms_by_source: dict[Path, TransformSnapshot] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -65,9 +67,13 @@ class VideoCreationDialog(QDialog):
         self.setMinimumSize(860, 620)
         self.resize(980, 700)
         self._renderer = renderer
+        self._transforms_by_source = {
+            Path(path).resolve(): transforms
+            for path, transforms in (transforms_by_source or {}).items()
+        }
         self._background_color = QColor("#FFFFFF")
         self._crop_rect: NormalizedCrop | None = None
-        self._reference_source: Path | None = None
+        self._reference_source: VideoFrameSource | None = None
         self._reference_raster_size: tuple[int, int] | None = None
 
         root = QVBoxLayout(self)
@@ -83,7 +89,7 @@ class VideoCreationDialog(QDialog):
 
         hint = QLabel(
             tr(
-                "支持 EPS、PS、PNG、JPG/JPEG。左侧文件按显示顺序逐帧写入；可将不需要的文件移到右侧。"
+                "支持 EPS、PS、PNG、JPG/JPEG；多页文件会逐页展开。左侧帧按显示顺序写入，可将不需要的帧移到右侧。"
             )
         )
         hint.setWordWrap(True)
@@ -248,17 +254,39 @@ class VideoCreationDialog(QDialog):
         self._folder_edit.setText(str(folder.resolve()))
         self._included.clear()
         self._excluded.clear()
-        for path in files:
-            self._included.addItem(self._file_item(path))
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            for path in files:
+                transforms = self._transforms_by_source.get(path, TransformSnapshot())
+                page_count = 1
+                if path.suffix.lower() in {".eps", ".ps"}:
+                    try:
+                        page_count = self._renderer.page_count(path)
+                    except Exception:
+                        # Rendering will provide the full error if export starts.
+                        page_count = 1
+                for page_number in range(1, page_count + 1):
+                    frame = VideoFrameSource(path, page_number, transforms)
+                    self._included.addItem(self._file_item(frame, page_count))
+        finally:
+            QApplication.restoreOverrideCursor()
         self._update_count()
         self._sync_reference(force=True)
         self._output_edit.setText(str(folder.resolve() / "sequence.mp4"))
 
     @staticmethod
-    def _file_item(path: Path) -> QListWidgetItem:
-        item = QListWidgetItem(path.name)
-        item.setData(Qt.ItemDataRole.UserRole, str(path))
-        item.setToolTip(str(path))
+    def _file_item(frame: VideoFrameSource, page_count: int) -> QListWidgetItem:
+        label = frame.path.name
+        if page_count > 1:
+            label = tr(
+                "{name} — 第 {page}/{total} 页",
+                name=frame.path.name,
+                page=frame.page_number,
+                total=page_count,
+            )
+        item = QListWidgetItem(label)
+        item.setData(Qt.ItemDataRole.UserRole, frame)
+        item.setToolTip(str(frame.path))
         return item
 
     def _move_selected(self, source: QListWidget, target: QListWidget) -> None:
@@ -287,16 +315,16 @@ class VideoCreationDialog(QDialog):
     def _update_count(self) -> None:
         self._count_label.setText(
             tr(
-                "参与 {included} 个；排除 {excluded} 个",
+                "参与 {included} 帧；排除 {excluded} 帧",
                 included=self._included.count(),
                 excluded=self._excluded.count(),
             )
         )
 
-    def _first_source(self) -> Path | None:
+    def _first_source(self) -> VideoFrameSource | None:
         if self._included.count() == 0:
             return None
-        return Path(self._included.item(0).data(Qt.ItemDataRole.UserRole)).resolve()
+        return self._included.item(0).data(Qt.ItemDataRole.UserRole)
 
     def _set_dimensions(self, width: int, height: int) -> None:
         self._width_spin.blockSignals(True)
@@ -307,15 +335,18 @@ class VideoCreationDialog(QDialog):
         self._height_spin.blockSignals(False)
         self._dimensions_changed()
 
-    def _remember_raster_size(self, source: Path) -> None:
+    def _remember_raster_size(self, source: VideoFrameSource) -> None:
         self._reference_raster_size = None
-        if source.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        if source.path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
             return
         try:
-            image = VideoExporter.read_raster(source)
+            image = VideoExporter.read_raster(source.path)
+            image = apply_page_transforms(
+                image, source.transforms, source.page_number
+            )
         except RuntimeError as error:
             self._reference_label.setText(
-                tr("首帧：{name}（{error}）", name=source.name, error=error)
+                tr("首帧：{name}（{error}）", name=source.display_name, error=error)
             )
             return
         self._reference_raster_size = (image.width(), image.height())
@@ -334,7 +365,7 @@ class VideoCreationDialog(QDialog):
             self._reference_label.setText(tr("首帧：—"))
             return
         self._reference_label.setText(
-            tr("首帧：{name}　使用完整图像", name=source.name)
+            tr("首帧：{name}　使用完整图像", name=source.display_name)
         )
         self._remember_raster_size(source)
         if self._reference_raster_size is not None:
@@ -342,7 +373,7 @@ class VideoCreationDialog(QDialog):
             self._reference_label.setText(
                 tr(
                     "首帧：{name}　{width} × {height} 像素　使用完整图像",
-                    name=source.name,
+                    name=source.display_name,
                     width=width,
                     height=height,
                 )
@@ -351,18 +382,35 @@ class VideoCreationDialog(QDialog):
     def _load_reference_preview(self) -> QImage:
         if self._reference_source is None:
             raise RuntimeError(tr("没有可预览的首帧。"))
-        if self._reference_source.suffix.lower() not in {".eps", ".ps"}:
-            return VideoExporter.read_raster(self._reference_source)
+        if self._reference_source.path.suffix.lower() not in {".eps", ".ps"}:
+            image = VideoExporter.read_raster(self._reference_source.path)
+            image = VideoExporter._composite_background(
+                image, self._background_color.name()
+            )
+            return apply_page_transforms(
+                image,
+                self._reference_source.transforms,
+                self._reference_source.page_number,
+            )
 
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         rendered = None
         try:
             rendered = self._renderer.render(
-                self._reference_source,
+                self._reference_source.path,
                 dpi=150,
                 guard_dimensions=True,
+                page_number=self._reference_source.page_number,
             )
-            return VideoExporter.read_raster(rendered.png_path)
+            image = VideoExporter.read_raster(rendered.png_path)
+            image = VideoExporter._composite_background(
+                image, self._background_color.name()
+            )
+            return apply_page_transforms(
+                image,
+                self._reference_source.transforms,
+                self._reference_source.page_number,
+            )
         finally:
             if rendered is not None:
                 self._renderer.cache.release(rendered.png_path)
@@ -378,7 +426,7 @@ class VideoCreationDialog(QDialog):
             return
         dialog = CropSelectionDialog(
             image,
-            self._reference_source.name,
+            self._reference_source.display_name,
             self._crop_rect,
             self,
         )
@@ -392,7 +440,7 @@ class VideoCreationDialog(QDialog):
             self._reference_label.setText(
                 tr(
                     "首帧：{name}　使用完整图像",
-                    name=self._reference_source.name,
+                    name=self._reference_source.display_name,
                 )
             )
             self._clear_crop_button.setEnabled(False)
@@ -401,7 +449,7 @@ class VideoCreationDialog(QDialog):
         self._reference_label.setText(
             tr(
                 "首帧：{name}　选定区域 {width} × {height} 像素；后续帧按相同比例裁剪",
-                name=self._reference_source.name,
+                name=self._reference_source.display_name,
                 width=crop_width,
                 height=crop_height,
             )
@@ -419,7 +467,7 @@ class VideoCreationDialog(QDialog):
             self._reference_label.setText(
                 tr(
                     "首帧：{name}　{width} × {height} 像素　使用完整图像",
-                    name=self._reference_source.name,
+                    name=self._reference_source.display_name,
                     width=width,
                     height=height,
                 )
@@ -428,7 +476,7 @@ class VideoCreationDialog(QDialog):
             self._reference_label.setText(
                 tr(
                     "首帧：{name}　使用完整图像",
-                    name=self._reference_source.name,
+                    name=self._reference_source.display_name,
                 )
             )
 
@@ -526,15 +574,21 @@ class VideoCreationDialog(QDialog):
         self.accept()
 
     def selected_files(self) -> tuple[Path, ...]:
+        return tuple(dict.fromkeys(
+            self._included.item(index).data(Qt.ItemDataRole.UserRole).path
+            for index in range(self._included.count())
+        ))
+
+    def selected_frames(self) -> tuple[VideoFrameSource, ...]:
         return tuple(
-            Path(self._included.item(index).data(Qt.ItemDataRole.UserRole))
+            self._included.item(index).data(Qt.ItemDataRole.UserRole)
             for index in range(self._included.count())
         )
 
     def request(self) -> VideoExportRequest:
         output_format = str(self._format_combo.currentData())
         return VideoExportRequest(
-            sources=self.selected_files(),
+            sources=self.selected_frames(),
             target=Path(self._output_edit.text()).with_suffix(f".{output_format}"),
             output_format=output_format,
             width=self._width_spin.value(),

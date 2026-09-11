@@ -14,7 +14,7 @@ from typing import Any
 
 
 APP_NAME = "EPS Live Viewer"
-APP_VERSION = "1.3.0"
+APP_VERSION = "2.0.0"
 PROJECT_URL = "https://github.com/eternitylzt/EPSLiveViewer"
 BACKGROUND_MODES = ("transparent", "white", "custom")
 WHEEL_ACTIONS = ("zoom", "files", "pages")
@@ -23,7 +23,7 @@ MIN_REFRESH_INTERVAL = 100
 MAX_REFRESH_INTERVAL = 10_000
 MIN_EXPORT_DPI = 72
 MAX_EXPORT_DPI = 600
-SUPPORTED_SOURCE_SUFFIXES = (".eps", ".ps")
+SUPPORTED_SOURCE_SUFFIXES = (".eps", ".ps", ".png", ".jpg", ".jpeg")
 VIDEO_SOURCE_SUFFIXES = (".eps", ".ps", ".png", ".jpg", ".jpeg")
 
 

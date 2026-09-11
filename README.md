@@ -1,164 +1,80 @@
 # EPS Live Viewer
 
-[简体中文](README.md) | [English](README_EN.md)
+[中文](README.md) | [English](README_EN.md)
 
-EPS Live Viewer 是面向科研绘图快速迭代的轻量级桌面查看器。它可打开 EPS 和 PostScript（PS）文件；当 IDL、Python、MATLAB、Fortran 等程序重新生成当前文件后，预览会自动更新。Windows 版本保持原有稳定用法，仓库现已具备 Linux 和 macOS 的构建、配置与发布基础。
+EPS Live Viewer 是面向科研绘图快速迭代的轻量级跨平台桌面查看器。它能实时查看 EPS/PS，也能直接打开 PNG/JPG，在同一个界面中完成相邻文件比较、多页浏览、旋转、反色、替换颜色、图片导出和视频制作。
 
 ## 主要功能
 
-- 打开 `.eps`、`.ps` 文件：菜单、命令行、Windows“打开方式”或直接拖入预览区域。
-- 自动检测当前文件变化并刷新，支持文件被覆盖、短暂占用或延迟写入的常见工作流。
-- 矢量源预览：放大时按当前视野重新绘制路径和文字，而非放大固定 DPI 的截图。
-- 自动识别同一文件夹内按文件名排列的 EPS/PS；按左右方向键即可前后翻看比较。
-- 多页 EPS/PS 使用上下方向键翻页，状态栏显示当前页码；PNG 导出保存当前页。
-- 鼠标滚轮缩放、拖动平移、双击恢复 100%、`Ctrl+0` 适应窗口。
-- 滚轮可设置为缩放、切换相邻文件或仅翻页；后两种模式下 `Ctrl+滚轮` 始终用于缩放。
-- 窗口顶部工具栏提供打开、刷新、切换文件、翻页、缩放、适应窗口和保存 PNG 按钮。
-- 界面支持简体中文与英语，可在设置中即时切换，无需重启。
-- 设置透明棋盘格、白色或自定义预览背景。
-- 导出 PNG 时可选择 72–600 DPI，并可保留透明背景或合成到背景色。
-- 使用 Ghostscript `pdfwrite` 将当前 EPS/PS 完整导出为多页矢量 PDF。
-- 可从“帮助 → 检查更新”手动查询 GitHub 最新版本，并按需打开对应 Release 下载页面；程序不会在后台自动检查、下载或安装更新。
-- 将文件夹中的 EPS、PS、PNG、JPG/JPEG 制作成 MP4 或 GIF，可排除文件、调整帧序、分辨率、帧率和背景色，并通过首帧预览框选局部区域。
-- 保存最近打开的 10 个文件。
+- EPS/PS 矢量预览：放大时按当前视图重新渲染，线条和文字保持清晰。
+- PNG/JPG 图片查看：无需 Ghostscript 即可打开、缩放、旋转、反色和替换颜色。
+- 实时刷新：当前文件被 IDL、Python、MATLAB、Fortran 等程序重新生成后自动更新。
+- 快速比较：自动识别同一文件夹中的 EPS、PS、PNG、JPG/JPEG；`←`、`→` 切换相邻文件。
+- 多页文档：`↑`、`↓` 切换 EPS/PS 页面；滚轮行为可设置为缩放、相邻文件或翻页，`Ctrl + 滚轮` 始终缩放。
+- 图像调整：工具栏和“图像”菜单支持按页左/右旋转、全文档反转颜色，以及最多 16 组颜色替换。
+- 灵活配色：颜色窗口支持 RGB 和 HEX 色值；系统提供时可使用屏幕取色器。可为每组替换设置 RGB 容差。处理顺序固定为“反色 → 颜色替换”，因此点击顺序不会改变结果。
+- PNG 导出：可设置 72–600 DPI；多页 EPS/PS 可仅保存当前页，或将全部页面导出到一个新文件夹。
+- 文档导出：调整后的结果可保存为 PDF、PS 或 EPS。PDF/PS 保留多页，标准 EPS 保存当前页。
+- 视频/动图：文件夹中的每个 EPS/PS 页面和每张 PNG/JPG 都可作为独立帧，支持调整顺序、排除帧、按首帧设置画布、比例裁剪、帧率、MP4/GIF，并应用已设置的旋转与颜色调整。
+- 中英文界面、最近文件、背景颜色、手动检查 GitHub 更新。
 
-## 平台支持
+查看器使用文件自身的页面或图像尺寸，并不限制为 A4，因此无需设置纸张大小。PNG/JPG 本身是位图，放大清晰度仍由原始像素决定。
 
-| 平台 | 发布形式 | 当前状态 |
-| --- | --- | --- |
-| Windows x64 | 单文件 `EPSLiveViewer.exe` | 主要开发与验证平台，原有用法不变 |
-| Linux x64 | 单文件 `EPSLiveViewer` | 可移植基础版本，需桌面环境与系统 Ghostscript |
-| macOS Apple Silicon / Intel | `.dmg` 安装镜像，内含 `EPSLiveViewer.app` | 两种架构的可安装版本，当前未使用 Apple Developer 证书签名或公证 |
+## 安装
 
-三个平台的安装包可从 [GitHub Releases](https://github.com/eternitylzt/EPSLiveViewer/releases) 下载。Linux/macOS 版本由 GitHub Actions 在对应原生系统上构建，属于初始移植版本；欢迎通过 Issue 反馈平台相关问题。
+从 [GitHub Releases](https://github.com/eternitylzt/EPSLiveViewer/releases) 下载对应平台：
+
+- Windows：解压 `EPSLiveViewer-Windows-x64.zip`，运行 `EPSLiveViewer.exe`。
+- macOS Apple Silicon：下载 `EPSLiveViewer-macOS-arm64.dmg`。
+- macOS Intel：下载 `EPSLiveViewer-macOS-x64.dmg`。
+- Linux x64：解压 `EPSLiveViewer-Linux-x64.tar.gz`，为程序添加执行权限后运行。
+
+发布包无需 Python。查看或处理 EPS/PS 需要安装 Ghostscript；程序会自动查找，也可在“文件 → 设置”中指定路径。仅打开/调整 PNG/JPG、保存 PNG 或用纯栅格图片制作视频时不需要 Ghostscript；将 PNG/JPG 导出为 PDF/PS/EPS 时需要 Ghostscript。
 
 ## 使用方法
 
-### 1. 环境要求
+1. 选择“文件 → 打开图片”，将文件拖入窗口，或在命令行传入文件路径。
+2. 使用滚轮缩放、拖动平移、双击恢复 100%，或点击工具栏的缩放和适应窗口按钮。
+3. 用方向键浏览相邻文件和多页文档；状态栏显示文件位置、页码、页面尺寸、缩放和更新时间。
+4. 在“图像”菜单或工具栏中旋转、反色；在“图像 → 替换颜色”中添加源颜色、目标颜色和容差。
+5. 选择“另存为 PNG/PDF/EPS/PS”导出调整后的结果。颜色替换会把 PDF/PS/EPS 页面以所选 DPI 封装为位图；没有颜色替换时，EPS/PS 的旋转和反色导出仍保持矢量内容。
+6. 选择“文件 → 制作视频/动图”，选定文件夹并调整帧列表和输出参数。多页 EPS/PS 会自动展开为连续帧。
 
-Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveViewer`。macOS 请按处理器下载 Apple Silicon（M 系列）或 Intel 版 `.dmg`，打开镜像后将 `EPSLiveViewer.app` 拖到 `Applications` 文件夹。安装后可将 `.eps`/`.ps` 设为由本工具默认打开，Finder 的“打开方式”会把文件直接交给已经启动或新启动的应用。
-
-发布包不要求安装 Python。预览 EPS/PS 或将其制作成视频时需要系统 Ghostscript：Windows 自动查找 `gswin64c.exe`，Linux/macOS 自动查找 `gs`；未识别时，请在“文件 → 设置”中手动选择。仅使用 PNG/JPG 制作视频不需要 Ghostscript。
-
-### 2. 打开文件
-
-可使用“文件 → 打开 EPS/PS”，也可将 `.eps` 或 `.ps` 文件拖入中央预览区域。Windows 命令行示例：
-
-```powershell
-.\EPSLiveViewer.exe "D:\plots\figure.ps"
-```
-
-如需双击打开，可在系统中为 `.eps` 或 `.ps` 文件关联 EPS Live Viewer。Windows 可在“打开方式”中指定 `EPSLiveViewer.exe`。
-
-### 3. 实时查看
-
-打开绘图程序生成的文件后，继续运行绘图代码即可。文件重新写入完成后，EPS Live Viewer 会自动生成新预览，并尽量保持当前缩放与平移位置。
-
-同目录中的 EPS/PS 会按文件名自然排序。按 `←` 打开上一个文件，按 `→` 打开下一个文件；状态栏会保持显示当前文件名和 `[当前位置/总数]`。切换时会重新扫描文件夹，因此新生成的相邻文件也会自动加入序列。
-
-多页 EPS/PS 按 `↑`、`↓` 切换上一页和下一页；单页文件不会响应翻页。滚轮默认缩放，也可在“文件 → 设置”中改为相邻文件或翻页模式。方向键功能不受滚轮设置影响。
-
-### 4. 导出 PNG
-
-选择“文件 → 另存为 PNG”，指定保存位置和本次 DPI。导出直接由源 EPS/PS 文件生成，不受当前窗口缩放或平移影响。
-
-### 5. 导出矢量 PDF
-
-选择“文件 → 另存为 PDF”，指定保存位置。程序通过 Ghostscript `pdfwrite` 直接转换当前 EPS/PS，保留完整页数和矢量质量，不受当前预览页码、缩放或平移影响。转换成功前不会覆盖已有目标文件。
-
-### 6. 制作 MP4/GIF
-
-选择“文件 → 制作视频/动图”，再选择源文件夹。程序会按文件名把该文件夹内支持的文件放入左侧“参与视频”列表：
-
-- 选中左侧文件并点“排除 →”，可移到右侧而不参与输出；点“← 加回”可恢复。
-- 左侧列表支持拖动排序，也可用“上移/下移”改变帧序。
-- 首帧为 PNG/JPG 时，画布会自动使用它的实际像素尺寸。首帧改变后会重新读取尺寸。
-- 点“预览并选择区域”，在首帧上按住鼠标左键拖拽并确认，即可只输出框选部分；点“恢复完整图像”可取消裁剪。
-- 设置 MP4 或 GIF、画布分辨率、帧率、背景色及输出路径后，点“开始生成”。
-
-裁剪区域记录为相对于首帧宽高的比例。后续图片即使分辨率不同，也会在各自相同的比例位置裁剪，然后保持长宽比并居中放入统一画布。EPS/PS 取第一页生成帧。MP4/GIF 编码器已包含在发布包中；但预览或处理 EPS/PS 帧时仍需要 Ghostscript。仅使用 PNG/JPG 制作视频则不需要 Ghostscript。
-
-### 7. 检查更新
-
-选择“帮助 → 检查更新”。程序只在本次手动操作后访问 GitHub Releases API；发现新版时会显示版本号，并可打开该版本的 Release 下载页面。此功能不会自动下载或安装，也不会在启动时或后台检查。网络不可用时会显示错误提示，不影响本地预览和导出。
+调整只保存在当前运行会话中，不会修改源文件。自动刷新也会保留当前文件的调整状态。
 
 ## 常见问题
 
-### 提示“未找到 Ghostscript”
+### 为什么 EPS/PS 无法显示？
 
-请安装 Ghostscript。Windows 应在设置中选择命令行程序 `gswin64c.exe`，不要选择带窗口的 `gswin64.exe`；Linux/macOS 选择 `gs`。macOS 通过 Finder 启动时可能没有终端的 PATH，程序也会检查 Homebrew 常用位置。
+确认已安装 Ghostscript，并在设置中选择控制台程序：Windows 通常为 `gswin64c.exe`，Linux/macOS 通常为 `gs`。
 
-### 配置文件保存在哪里
+### 为什么 PNG/JPG 放大后不再清晰？
 
-为保持兼容，Windows 发布版仍使用 EXE 同目录的 `config.json`。Linux 使用 `$XDG_CONFIG_HOME/EPSLiveViewer/config.json`（未设置该变量时为 `~/.config/EPSLiveViewer/config.json`），macOS 使用 `~/Library/Application Support/EPSLiveViewer/config.json`。
+PNG/JPG 是位图；程序不会凭空增加细节。EPS/PS 中原本嵌入的照片也受原始像素限制。
 
-### macOS 提示无法验证开发者
+### 反色后的 PDF 为什么仍是矢量，而任意颜色替换不是？
 
-若 Release 标注为未公证版本，首次启动时需在 Finder 的“应用程序”中按住 Control 点击 EPS Live Viewer，选择“打开”，再确认一次。彻底消除此提示需要 Apple Developer ID 证书签名和 Apple 公证；仓库发布流程已支持在配置证书后自动签名、公证和装订凭据，但无法用免费临时签名替代 Apple 的信任链。
+旋转和整体反色可用文档图形能力保留矢量；任意多色容差替换需要逐像素判断，因此 PDF/PS/EPS 会使用所选 DPI 的位图页面。PNG 和视频始终按像素输出。
 
-### 文件刚生成时没有立即刷新
+### macOS 提示应用不安全怎么办？
 
-程序会等待文件写入稳定后再刷新。若文件位于网络盘或写入时间较长，可在设置中把检测间隔提高到 800–1000 ms。
+正式签名和公证需要 Apple Developer 证书；如果当前 Release 未公证，可在 Finder 中按住 Control 点击应用并选择“打开”，或在“隐私与安全性”中确认打开。请只从本项目 Releases 下载。
 
-### 放大时短暂不够清晰
+### 为什么不能覆盖当前打开的源文件？
 
-停止连续缩放后，程序会按当前缩放比例重新绘制可见区域。EPS/PS 中原本嵌入的照片或位图仍受原始像素数量限制。
+文档另存为会阻止覆盖当前源文件，避免自动刷新和导出同时破坏原图。请使用新的文件名。
 
-### 透明背景显示为灰白方格
+### 如何检查更新？
 
-方格仅用于提示透明区域，不会写入透明 PNG。若其他软件将透明区域显示为白色或黑色，这是该软件的 alpha 通道显示方式。
-
-### PNG 导出较慢或内存占用较高
-
-PNG 是整页位图，像素数量随 DPI 的平方增长。通常建议使用 300 DPI；只有确有需要时再选 600 DPI。程序会拒绝异常大的输出以保护内存。
-
-### PS 文件有多页
-
-预览器支持多页 EPS/PS，可用上下方向键或工具栏翻页。保存 PNG 时导出当前页，另存为 PDF 时导出全部页面；制作视频时，每个 EPS/PS 文件仍取第一页作为一帧。
-
-### MP4/GIF 中的图片大小不一致
-
-所有帧都会按比例缩放并居中到设定画布，空白区域使用视频窗口中选择的背景色。程序不会拉伸原图。
-
-### 后续帧与首帧的分辨率不同，裁剪位置是否会偏移
-
-不会使用首帧的固定像素坐标。程序保存的是裁剪框占整张图的比例，并据此计算每一张后续图片的对应区域。若图片本身的构图或长宽比发生变化，对应区域仍按宽、高方向的百分比确定。
-
-### 视频生成耗时较长
-
-高分辨率、大量帧或包含 EPS/PS 时需要更多渲染和编码时间。生成过程可取消；取消或失败不会留下不完整的目标文件。
-
-### 检查更新时提示网络错误
-
-请确认可以访问 `api.github.com`。代理、防火墙或暂时的 GitHub 服务异常都可能导致检查失败；关闭提示后可继续离线使用全部本地功能。
+手动选择“帮助 → 检查更新”。程序不会后台检查、自动下载或自动安装。
 
 <details>
-<summary>开发与打包说明</summary>
+<summary>开发与构建信息</summary>
 
-开发环境需要 Python 3.11+。运行和调试 EPS/PS 功能时还需要 Ghostscript：
+开发环境为 Python 3.11+、PyQt6、Ghostscript、PyInstaller。安装依赖后可运行 `python main.py example.eps`。Windows 运行 `build.bat` 生成单文件 EXE；Linux/macOS 使用 `build_unix.sh`。推送 `eps-live-viewer-v*` 标签会触发原生 Windows、Linux、macOS Apple Silicon/Intel 构建并创建 GitHub Release。
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python main.py
-```
-
-Windows 双击 `build.bat` 可继续生成原有单文件 `dist\EPSLiveViewer.exe`。
-
-Windows 打包使用 `hooks/` 中的精简规则：移除本程序未使用的软件 OpenGL 库，将完整 FFmpeg 无损压缩后内置，首次制作视频时解压到临时目录，退出时清理。普通预览无需解压编码器，制作视频无需联网或另装 FFmpeg。请保留构建参数 `--additional-hooks-dir hooks`，不要同时使用 `--collect-all imageio_ffmpeg`，以免重复打包。图片读取由预览与视频导出共用；文件占用、取消、内存上限和原子保存等保护仍保留。
-
-Linux/macOS 可执行：
-
-```bash
-chmod +x build_unix.sh
-./build_unix.sh
-```
-
-推送 `eps-live-viewer-v*` 标签或手动运行[多平台发布工作流](.github/workflows/eps-live-viewer-release.yml)，会在 Windows、Ubuntu、macOS Apple Silicon 和 macOS Intel 原生 runner 上分别构建发行包、生成 SHA-256 校验文件并创建或更新 GitHub Release。macOS 产物为可拖入“应用程序”的 DMG。PyInstaller 不支持从单一操作系统交叉编译所有平台，因此各平台必须独立构建。
-
-如需正式签名和公证 macOS 包，可在仓库 Secrets 中配置 `MACOS_CERTIFICATE`、`MACOS_CERTIFICATE_PASSWORD`、`MACOS_SIGNING_IDENTITY`、`MACOS_NOTARY_APPLE_ID`、`MACOS_NOTARY_TEAM_ID` 和 `MACOS_NOTARY_PASSWORD`。未配置时工作流回退为可构建但未公证的临时签名版本。
-
-附：本项目主要借助 Codex 生成。
+颜色处理完全使用 Qt/Python 实现，没有新增图像或 PDF 第三方依赖。Ghostscript 仍是唯一的 EPS/PostScript 解释器。
 
 </details>
+
+作者：Zhentong Li · eternitylzt@gmail.com

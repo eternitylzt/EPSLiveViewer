@@ -1,4 +1,4 @@
-"""Robust QFileSystemWatcher wrapper for live EPS refresh notifications."""
+"""Robust QFileSystemWatcher wrapper for live source refresh notifications."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from PyQt6.QtCore import QFileSystemWatcher, QObject, QTimer, pyqtSignal
 
 
 class EpsFileMonitor(QObject):
-    """Watches an EPS file and its parent directory, with polling fallback.
+    """Watch one source file and its parent directory, with polling fallback.
 
-    File writers often update EPS files by deleting/replacing them.  Watching the
+    File writers often update plots by deleting/replacing them. Watching the
     parent directory lets the viewer survive that pattern; light mtime polling
     covers filesystems where native change notifications arrive unreliably.
     """
@@ -114,7 +114,7 @@ class EpsFileMonitor(QObject):
             self._schedule_change()
         elif signature != self._last_signature:
             # Parent-directory watches survive atomic file replacement, but an
-            # unrelated PNG or log written beside the EPS must not reload it.
+            # unrelated plot or log written beside the source must not reload it.
             self._last_signature = signature
             self._schedule_change()
 

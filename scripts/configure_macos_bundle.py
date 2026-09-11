@@ -1,4 +1,4 @@
-"""Set version and EPS/PS document associations in a macOS app Info.plist."""
+"""Set version and supported-image associations in a macOS app Info.plist."""
 
 from __future__ import annotations
 
@@ -25,7 +25,14 @@ def configure(info_plist: Path, version: str) -> None:
                 "com.adobe.encapsulated-postscript",
                 "com.adobe.postscript",
             ],
-        }
+        },
+        {
+            "CFBundleTypeName": "PNG/JPEG Image",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "CFBundleTypeExtensions": ["png", "jpg", "jpeg"],
+            "LSItemContentTypes": ["public.png", "public.jpeg"],
+        },
     ]
 
     with info_plist.open("wb") as stream:

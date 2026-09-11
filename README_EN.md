@@ -1,138 +1,80 @@
 # EPS Live Viewer
 
-[简体中文](README.md) | [English](README_EN.md)
+[中文](README.md) | [English](README_EN.md)
 
-EPS Live Viewer is a lightweight desktop viewer for rapid scientific-plot iteration. It opens EPS and PostScript (PS) files and automatically refreshes the preview when IDL, Python, MATLAB, Fortran, or another program rewrites the current file. The established Windows application remains unchanged, while the repository now provides the foundation for Linux and macOS builds.
+EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scientific plotting workflows. It live-previews EPS/PS files, opens PNG/JPG directly, and provides neighboring-file comparison, multi-page navigation, rotation, color inversion/replacement, export, and video creation in one interface.
 
-## Features
+## Main features
 
-- Open `.eps` and `.ps` files from the menu, command line, OS file association, or drag and drop.
-- Detect rewritten, temporarily locked, or slowly written source files and refresh automatically.
-- Vector-source preview: paths and text are rerendered at the current zoom instead of enlarging a fixed-DPI screenshot.
-- Browse neighboring EPS/PS files in natural filename order with the left and right arrow keys.
-- Use Up/Down to move through multi-page EPS/PS files; the status bar shows the current page and PNG export saves that page.
-- Zoom with the mouse wheel, pan by dragging, restore 100% with a double click, or fit with `Ctrl+0`.
-- Configure the wheel to zoom, browse neighboring files, or change pages. `Ctrl+wheel` always zooms in the latter two modes.
-- Use the top toolbar for opening, reloading, file/page navigation, zooming, fitting, and PNG export.
-- Switch the complete interface between Simplified Chinese and English immediately in Settings.
-- Use a transparent checkerboard, white, or custom preview background.
-- Export PNG at 72–600 DPI with a transparent or composited background.
-- Export the complete current EPS/PS as a multi-page vector PDF through Ghostscript `pdfwrite`.
-- Manually check GitHub for a newer release from **Help → Check for Updates**, then optionally open its download page. The app never checks, downloads, or installs updates automatically.
-- Create MP4/GIF sequences from EPS, PS, PNG, JPG, and JPEG files, with filtering, ordering, frame rate, canvas, and background controls.
-- Select a crop region interactively on the first frame; the same normalized region is applied to frames with different resolutions.
-- Keep the ten most recently opened files.
+- Vector EPS/PS preview: visible content is rerendered for the current zoom, keeping paths and text sharp.
+- PNG/JPG viewing: open, zoom, rotate, invert, and replace colors without Ghostscript.
+- Live refresh when IDL, Python, MATLAB, Fortran, or another program regenerates the current file.
+- Neighbor browsing: EPS, PS, PNG, and JPG/JPEG files in the same folder are naturally sorted; use `Left`/`Right` to compare them.
+- Multi-page documents: use `Up`/`Down` for EPS/PS pages. The wheel can zoom, browse files, or change pages; `Ctrl + wheel` always zooms.
+- Image adjustments: rotate the current page left/right, invert the whole document, and define up to 16 color replacements.
+- Flexible color selection: Qt's dialog supports RGB and HEX, and a screen picker where the operating system provides one. Each mapping has an RGB tolerance. Processing always follows “invert → replace”, so click order does not change the result.
+- PNG export at 72–600 DPI. For multi-page EPS/PS, save the current page or export every page into a new folder.
+- Document export: save adjusted output as PDF, PS, or EPS. PDF/PS retain all pages; standard EPS saves the current page.
+- MP4/GIF creation: every EPS/PS page and every PNG/JPG can be an independent frame. Reorder/exclude frames, inherit the first frame's canvas size, crop proportionally, choose FPS, and apply existing rotation/color adjustments.
+- Chinese/English interface, recent files, configurable background, and manual GitHub update checks.
 
-## Platform support
+The viewer uses each file's own page/image dimensions and is not limited to A4, so no paper-size setting is needed. PNG/JPG is raster data and remains limited by its original pixels when enlarged.
 
-| Platform | Package | Status |
-| --- | --- | --- |
-| Windows x64 | Single-file `EPSLiveViewer.exe` | Primary development and validation platform; existing usage is unchanged |
-| Linux x64 | Single-file `EPSLiveViewer` | Initial portable build; requires a desktop environment and system Ghostscript |
-| macOS Apple Silicon / Intel | `.dmg` installer containing `EPSLiveViewer.app` | Installable builds for both architectures; not signed with an Apple Developer certificate or notarized |
+## Installation
 
-Download packages from [GitHub Releases](https://github.com/eternitylzt/EPSLiveViewer/releases). Linux and macOS packages are built on native GitHub-hosted runners and should be considered initial ports. Platform-specific reports are welcome through GitHub Issues.
+Download the appropriate package from [GitHub Releases](https://github.com/eternitylzt/EPSLiveViewer/releases):
+
+- Windows: extract `EPSLiveViewer-Windows-x64.zip` and run `EPSLiveViewer.exe`.
+- macOS Apple Silicon: download `EPSLiveViewer-macOS-arm64.dmg`.
+- macOS Intel: download `EPSLiveViewer-macOS-x64.dmg`.
+- Linux x64: extract `EPSLiveViewer-Linux-x64.tar.gz`, make the executable runnable, and launch it.
+
+Release packages do not require Python. Ghostscript is required to view or process EPS/PS; the app searches automatically, or you can select it under **File → Settings**. Opening/adjusting PNG/JPG, saving PNG, and creating a video exclusively from raster images do not require Ghostscript. Exporting PNG/JPG to PDF/PS/EPS does.
 
 ## Usage
 
-### 1. Requirements
+1. Choose **File → Open Image**, drop a supported file into the window, or pass its path on the command line.
+2. Scroll to zoom, drag to pan, double-click for 100%, or use the toolbar zoom/fit controls.
+3. Use the arrow keys to browse neighboring files and document pages. The status bar shows file position, page number, page size, zoom, and update time.
+4. Rotate or invert from the **Image** menu/toolbar. Under **Image → Replace Colors**, choose source/target colors and tolerance.
+5. Use **Save as PNG/PDF/EPS/PS** to export the adjusted result. Color replacement stores PDF/PS/EPS pages as raster images at the selected DPI. Without replacements, rotation and inversion of EPS/PS content remain vector-based.
+6. Choose **File → Create Video/Animation**, select a folder, and edit the frame list and output options. Multi-page EPS/PS files are expanded into consecutive frames automatically.
 
-Release packages do not require Python. On macOS, download the Apple Silicon build for an M-series Mac or the Intel build for an Intel Mac, open the DMG, and drag `EPSLiveViewer.app` into `Applications`. EPS/PS files associated with the app are delivered directly by Finder whether the app is already running or newly launched. Ghostscript is required to preview EPS/PS files or use them as video frames. Windows searches for `gswin64c.exe`; Linux and macOS search for `gs`. If detection fails, select the executable under **File → Settings**. Creating a video from PNG/JPG files alone does not require Ghostscript.
-
-### 2. Open and live-preview a file
-
-Use **文件 (File) → 打开 EPS/PS (Open EPS/PS)**, or drag an `.eps`/`.ps` file into the preview. A command-line example is:
-
-```text
-EPSLiveViewer path/to/figure.ps
-```
-
-After opening an output file, rerun your plotting code. The viewer refreshes after the write becomes stable and tries to preserve the current zoom and pan position.
-
-Files in the same folder are naturally sorted by name. Press `←` or `→` to open the previous or next file. The status bar keeps the current filename and `[position/total]` visible, and the folder is rescanned whenever you navigate.
-
-For a multi-page document, press `↑` or `↓` for the previous or next page. Single-page files ignore page navigation. The wheel defaults to zooming; choose file or page navigation under **File → Settings** if preferred. Arrow-key behavior is independent of this setting.
-
-### 3. Export PNG
-
-Choose **文件 (File) → 另存为 PNG (Save as PNG)**, then select the output path and DPI. Exporting always renders from the source EPS/PS and is independent of the current viewport.
-
-### 4. Export vector PDF
-
-Choose **File → Save as PDF**, then select the destination. Ghostscript `pdfwrite` converts the complete current EPS/PS while preserving page count and vector quality. The export is independent of the displayed page, zoom, and pan, and an existing destination is not replaced until conversion succeeds.
-
-### 5. Create MP4/GIF
-
-Choose **文件 (File) → 制作视频/动图 (Create Video/Animation)**, then select a source folder.
-
-- The left list contains included frames; move unwanted files to the right list.
-- Drag items or use the move buttons to change frame order.
-- When the first frame is PNG/JPG, its native pixel dimensions become the default canvas size.
-- Select **Preview and choose region**, then drag on the first frame to crop the sequence. The crop is stored as relative coordinates, so later frames use the corresponding proportional region even when their resolutions differ.
-- Choose MP4 or GIF, canvas size, frame rate, background color, and destination, then start the export.
-
-EPS/PS sources use their first page. Frames preserve aspect ratio and are centered on the selected canvas.
-
-### 6. Check for updates
-
-Choose **Help → Check for Updates**. The app contacts the GitHub Releases API only after this manual action. If a newer version exists, it displays the version and offers to open that release's download page. It does not download or install anything and performs no startup or background checks. A network failure is reported without affecting local viewing or export features.
+Adjustments exist only in the current session and never modify the source. Live refresh retains the current file's adjustment state.
 
 ## FAQ
 
-### Ghostscript was not found
+### Why will an EPS/PS file not display?
 
-Install Ghostscript, then select its command-line executable in Settings. On Windows choose `gswin64c.exe`, not the windowed `gswin64.exe`. On Linux/macOS choose `gs`. Finder-launched macOS applications may not inherit your terminal PATH, so the app also checks common Homebrew locations.
+Install Ghostscript and select its console executable in Settings if automatic detection fails: usually `gswin64c.exe` on Windows and `gs` on Linux/macOS.
 
-### Where is the configuration stored?
+### Why does a PNG/JPG become blurry when enlarged?
 
-For compatibility, Windows keeps `config.json` beside the EXE. Linux uses `$XDG_CONFIG_HOME/EPSLiveViewer/config.json` (or `~/.config/EPSLiveViewer/config.json` when the variable is unset); macOS uses `~/Library/Application Support/EPSLiveViewer/config.json`.
+PNG/JPG is raster data; the app cannot create missing detail. Photographs embedded in EPS/PS are likewise limited by their original resolution.
 
-### The file does not refresh immediately
+### Why does an inverted PDF remain vector while arbitrary replacement does not?
 
-The viewer waits for writing to stabilize. For network drives or unusually slow writers, increase the detection interval to 800–1000 ms in Settings.
+Rotation and whole-page inversion can use document graphics operations. Tolerance-based multi-color replacement must inspect pixels, so PDF/PS/EPS receives raster-backed pages at the chosen DPI. PNG and video are always pixel output.
 
-### The preview briefly looks soft while zooming
+### Why does macOS say the app is unsafe?
 
-Visible tiles are rerendered after continuous zooming stops. Photos or bitmaps embedded inside EPS/PS remain limited by their original pixel resolution.
+Formal signing and notarization require an Apple Developer certificate. If a Release is not notarized, Control-click the app in Finder and choose **Open**, or approve it in **Privacy & Security**. Download only from this project's Releases.
 
-### macOS says the application cannot be verified
+### Why can I not overwrite the current source?
 
-If a Release is marked as unnotarized, open `Applications` in Finder for the first launch, Control-click EPS Live Viewer, choose **Open**, and confirm once more. Fully removing this warning requires a Developer ID certificate and Apple notarization. The release workflow now signs, notarizes, and staples automatically when credentials are configured; an ad-hoc signature cannot replace Apple's trust chain.
+Document export blocks that operation so live refresh and export cannot damage the open source. Choose a new filename.
 
-### Later frames have different resolutions
+### How do I check for updates?
 
-The crop is not stored as fixed first-frame pixels. Its left, top, width, and height are stored as proportions of the image, then converted to each frame's own pixels before fitting the output canvas.
-
-### The update check reports a network error
-
-Confirm that `api.github.com` is reachable. A proxy, firewall, or temporary GitHub outage can prevent the check; dismissing the message leaves every local feature available offline.
+Choose **Help → Check for Updates** manually. There is no background check, automatic download, or automatic installation.
 
 <details>
-<summary>Development and packaging</summary>
+<summary>Development and build information</summary>
 
-Use Python 3.11+ and install dependencies from `requirements.txt`. Ghostscript is also needed to exercise EPS/PS features.
+The development stack is Python 3.11+, PyQt6, Ghostscript, and PyInstaller. After installing the requirements, run `python main.py example.eps`. Use `build.bat` for a one-file Windows EXE and `build_unix.sh` on Linux/macOS. Pushing an `eps-live-viewer-v*` tag triggers native Windows, Linux, macOS Apple Silicon, and macOS Intel builds and creates a GitHub Release.
 
-```bash
-python -m venv .venv
-python -m pip install -r requirements.txt
-python main.py
-```
-
-Run `build.bat` on Windows to retain the original single-file build.
-
-The Windows build uses `hooks/` to omit the unused software OpenGL library and losslessly compress the complete bundled FFmpeg executable. The encoder is unpacked into a temporary directory on first video export and cleaned up at exit. Viewing needs no encoder extraction; video export needs no download or separate FFmpeg installation. Keep `--additional-hooks-dir hooks` and do not combine it with `--collect-all imageio_ffmpeg`, which would package duplicate files. Preview and video export share image-reading code. File-lock handling, cancellation, memory limits, and atomic output remain in place.
-
-On Linux or macOS run:
-
-```bash
-chmod +x build_unix.sh
-./build_unix.sh
-```
-
-Pushing an `eps-live-viewer-v*` tag or manually running the [multi-platform release workflow](.github/workflows/eps-live-viewer-release.yml) builds on native Windows, Ubuntu, macOS Apple Silicon, and macOS Intel runners. It publishes platform packages, macOS DMGs, and SHA-256 checksums, then creates or updates a GitHub Release. PyInstaller does not cross-compile these desktop bundles from one operating system.
-
-For formal macOS signing and notarization, configure repository secrets named `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGNING_IDENTITY`, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_TEAM_ID`, and `MACOS_NOTARY_PASSWORD`. Without them, the workflow falls back to an ad-hoc-signed, unnotarized build.
-
-This project was developed primarily with the assistance of Codex.
+Color processing uses only Qt/Python and adds no image or PDF dependency. Ghostscript remains the only EPS/PostScript interpreter.
 
 </details>
+
+Author: Zhentong Li · eternitylzt@gmail.com
