@@ -17,6 +17,7 @@ from PyQt6.QtGui import QColor, QImage, QImageReader, QPainter
 
 from config import VIDEO_SOURCE_SUFFIXES
 from eps_renderer import EpsRenderCancelledError, EpsRenderer
+from i18n import tr
 
 
 MAX_VIDEO_PIXELS = 33_177_600  # 7680 x 4320 (8K UHD)
@@ -54,28 +55,28 @@ class VideoExporter:
     @staticmethod
     def _raise_if_cancelled(cancel_event: threading.Event) -> None:
         if cancel_event.is_set():
-            raise VideoExportCancelled("视频生成已取消。")
+            raise VideoExportCancelled(tr("视频生成已取消。"))
 
     @staticmethod
     def _validate(request: VideoExportRequest) -> VideoExportRequest:
         output_format = request.output_format.strip().lower()
         if output_format not in {"mp4", "gif"}:
-            raise VideoExportError("输出格式必须是 MP4 或 GIF。")
+            raise VideoExportError(tr("输出格式必须是 MP4 或 GIF。"))
         if not request.sources:
-            raise VideoExportError("参与视频的文件列表不能为空。")
+            raise VideoExportError(tr("参与视频的文件列表不能为空。"))
         if request.width < 2 or request.height < 2:
-            raise VideoExportError("视频宽度和高度不能小于 2 像素。")
+            raise VideoExportError(tr("视频宽度和高度不能小于 2 像素。"))
         if request.width * request.height > MAX_VIDEO_PIXELS:
-            raise VideoExportError("视频分辨率超过 8K UHD，可能耗尽内存。")
+            raise VideoExportError(tr("视频分辨率超过 8K UHD，可能耗尽内存。"))
         if not 1 <= request.fps <= 60:
-            raise VideoExportError("帧率必须在 1 到 60 FPS 之间。")
+            raise VideoExportError(tr("帧率必须在 1 到 60 FPS 之间。"))
         if not QColor(request.background_color).isValid():
-            raise VideoExportError("视频背景颜色无效。")
+            raise VideoExportError(tr("视频背景颜色无效。"))
 
         crop_rect = request.crop_rect
         if crop_rect is not None:
             if len(crop_rect) != 4:
-                raise VideoExportError("裁剪区域参数无效。")
+                raise VideoExportError(tr("裁剪区域参数无效。"))
             x, y, width, height = (float(value) for value in crop_rect)
             if (
                 x < 0
@@ -85,7 +86,7 @@ class VideoExporter:
                 or x + width > 1.000001
                 or y + height > 1.000001
             ):
-                raise VideoExportError("裁剪区域必须位于图像范围内。")
+                raise VideoExportError(tr("裁剪区域必须位于图像范围内。"))
             crop_rect = (
                 max(0.0, min(1.0, x)),
                 max(0.0, min(1.0, y)),
@@ -96,13 +97,15 @@ class VideoExporter:
         sources = tuple(Path(item).resolve() for item in request.sources)
         for source in sources:
             if not source.is_file():
-                raise VideoExportError(f"找不到序列文件：{source}")
+                raise VideoExportError(tr("找不到序列文件：{path}", path=source))
             if source.suffix.lower() not in VIDEO_SOURCE_SUFFIXES:
-                raise VideoExportError(f"不支持的序列文件格式：{source.name}")
+                raise VideoExportError(
+                    tr("不支持的序列文件格式：{name}", name=source.name)
+                )
 
         target = Path(request.target).expanduser()
         if target.name in {"", ".", ".."}:
-            raise VideoExportError("输出文件名无效。")
+            raise VideoExportError(tr("输出文件名无效。"))
         target = target.with_suffix(f".{output_format}").resolve()
         return VideoExportRequest(
             sources,
@@ -123,7 +126,9 @@ class VideoExporter:
         if image.isNull():
             detail = reader.errorString().strip()
             suffix = f"：{detail}" if detail else ""
-            raise VideoExportError(f"无法读取图片 {source.name}{suffix}")
+            raise VideoExportError(
+                tr("无法读取图片 {name}{suffix}", name=source.name, suffix=suffix)
+            )
         return image
 
     def _read_source(
@@ -195,9 +200,9 @@ class VideoExporter:
 
             executable = Path(imageio_ffmpeg.get_ffmpeg_exe())
         except Exception as error:
-            raise VideoExportError(f"无法加载视频编码器：{error}") from error
+            raise VideoExportError(tr("无法加载视频编码器：{error}", error=error)) from error
         if not executable.is_file():
-            raise VideoExportError("未找到随程序提供的视频编码器。")
+            raise VideoExportError(tr("未找到随程序提供的视频编码器。"))
         return executable
 
     @staticmethod
@@ -233,7 +238,7 @@ class VideoExporter:
             while True:
                 if cancel_event.is_set():
                     self._stop_process(process)
-                    raise VideoExportCancelled("视频生成已取消。")
+                    raise VideoExportCancelled(tr("视频生成已取消。"))
                 try:
                     stdout, stderr = process.communicate(timeout=0.1)
                     break
@@ -244,11 +249,13 @@ class VideoExporter:
         except OSError as error:
             if process is not None and process.poll() is None:
                 self._stop_process(process)
-            raise VideoExportError(f"无法启动视频编码器：{error}") from error
+            raise VideoExportError(
+                tr("无法启动视频编码器：{error}", error=error)
+            ) from error
         if process.returncode != 0:
             detail = " ".join((stderr or stdout).split())[-1600:]
             suffix = f"\nFFmpeg: {detail}" if detail else ""
-            raise VideoExportError(f"视频编码失败。{suffix}")
+            raise VideoExportError(tr("视频编码失败。{suffix}", suffix=suffix))
 
     def create(
         self,
@@ -261,9 +268,9 @@ class VideoExporter:
         try:
             request.target.parent.mkdir(parents=True, exist_ok=True)
         except OSError as error:
-            raise VideoExportError(f"无法创建输出目录：{error}") from error
+            raise VideoExportError(tr("无法创建输出目录：{error}", error=error)) from error
         if not request.target.parent.is_dir():
-            raise VideoExportError("视频输出目录无效。")
+            raise VideoExportError(tr("视频输出目录无效。"))
 
         staging = Path(
             tempfile.mkdtemp(prefix=".eps_video_", dir=request.target.parent)
@@ -274,26 +281,28 @@ class VideoExporter:
             for index, source in enumerate(request.sources):
                 self._raise_if_cancelled(cancel_event)
                 if progress:
-                    progress(index, total_steps, f"正在准备：{source.name}")
+                    progress(index, total_steps, tr("正在准备：{name}", name=source.name))
                 try:
                     image = self._read_source(source, request, cancel_event)
                     image = self._crop_image(image, request)
                     frame = self._fit_to_canvas(image, request)
                     frame_path = staging / f"frame_{index:06d}.png"
                     if not frame.save(str(frame_path), "PNG"):
-                        raise VideoExportError(f"无法写入临时帧：{source.name}")
+                        raise VideoExportError(
+                            tr("无法写入临时帧：{name}", name=source.name)
+                        )
                 except (VideoExportCancelled, EpsRenderCancelledError):
-                    raise VideoExportCancelled("视频生成已取消。")
+                    raise VideoExportCancelled(tr("视频生成已取消。"))
                 except VideoExportError:
                     raise
                 except Exception as error:
                     raise VideoExportError(
-                        f"处理 {source.name} 时失败：{error}"
+                        tr("处理 {name} 时失败：{error}", name=source.name, error=error)
                     ) from error
 
             self._raise_if_cancelled(cancel_event)
             if progress:
-                progress(len(request.sources), total_steps, "正在编码视频…")
+                progress(len(request.sources), total_steps, tr("正在编码视频…"))
             ffmpeg = self._ffmpeg_executable()
             command = [
                 str(ffmpeg),
@@ -334,14 +343,16 @@ class VideoExporter:
             command.append(str(encoded))
             self._run_ffmpeg(command, cancel_event)
             if not encoded.is_file() or encoded.stat().st_size == 0:
-                raise VideoExportError("视频编码器没有生成有效文件。")
+                raise VideoExportError(tr("视频编码器没有生成有效文件。"))
             self._raise_if_cancelled(cancel_event)
             try:
                 os.replace(encoded, request.target)
             except OSError as error:
-                raise VideoExportError(f"无法保存视频文件：{error}") from error
+                raise VideoExportError(
+                    tr("无法保存视频文件：{error}", error=error)
+                ) from error
             if progress:
-                progress(total_steps, total_steps, "视频已生成")
+                progress(total_steps, total_steps, tr("视频已生成"))
             return request.target
         finally:
             # This directory is created exclusively for this export operation.

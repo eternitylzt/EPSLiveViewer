@@ -10,7 +10,11 @@ EPS Live Viewer is a lightweight desktop viewer for rapid scientific-plot iterat
 - Detect rewritten, temporarily locked, or slowly written source files and refresh automatically.
 - Vector-source preview: paths and text are rerendered at the current zoom instead of enlarging a fixed-DPI screenshot.
 - Browse neighboring EPS/PS files in natural filename order with the left and right arrow keys.
+- Use Up/Down to move through multi-page EPS/PS files; the status bar shows the current page and PNG export saves that page.
 - Zoom with the mouse wheel, pan by dragging, restore 100% with a double click, or fit with `Ctrl+0`.
+- Configure the wheel to zoom, browse neighboring files, or change pages. `Ctrl+wheel` always zooms in the latter two modes.
+- Use the top toolbar for opening, reloading, file/page navigation, zooming, fitting, and PNG export.
+- Switch the complete interface between Simplified Chinese and English immediately in Settings.
 - Use a transparent checkerboard, white, or custom preview background.
 - Export PNG at 72–600 DPI with a transparent or composited background.
 - Create MP4/GIF sequences from EPS, PS, PNG, JPG, and JPEG files, with filtering, ordering, frame rate, canvas, and background controls.
@@ -31,7 +35,7 @@ Download packages from [GitHub Releases](https://github.com/eternitylzt/EPSLiveV
 
 ### 1. Requirements
 
-Release packages do not require Python. On macOS, download the Apple Silicon build for an M-series Mac or the Intel build for an Intel Mac, open the DMG, and drag `EPSLiveViewer.app` into `Applications`. Ghostscript is required to preview EPS/PS files or use them as video frames. Windows searches for `gswin64c.exe`; Linux and macOS search for `gs`. If detection fails, select the executable under **File → Settings**. Creating a video from PNG/JPG files alone does not require Ghostscript.
+Release packages do not require Python. On macOS, download the Apple Silicon build for an M-series Mac or the Intel build for an Intel Mac, open the DMG, and drag `EPSLiveViewer.app` into `Applications`. EPS/PS files associated with the app are delivered directly by Finder whether the app is already running or newly launched. Ghostscript is required to preview EPS/PS files or use them as video frames. Windows searches for `gswin64c.exe`; Linux and macOS search for `gs`. If detection fails, select the executable under **File → Settings**. Creating a video from PNG/JPG files alone does not require Ghostscript.
 
 ### 2. Open and live-preview a file
 
@@ -44,6 +48,8 @@ EPSLiveViewer path/to/figure.ps
 After opening an output file, rerun your plotting code. The viewer refreshes after the write becomes stable and tries to preserve the current zoom and pan position.
 
 Files in the same folder are naturally sorted by name. Press `←` or `→` to open the previous or next file. The status bar keeps the current filename and `[position/total]` visible, and the folder is rescanned whenever you navigate.
+
+For a multi-page document, press `↑` or `↓` for the previous or next page. Single-page files ignore page navigation. The wheel defaults to zooming; choose file or page navigation under **File → Settings** if preferred. Arrow-key behavior is independent of this setting.
 
 ### 3. Export PNG
 
@@ -81,7 +87,7 @@ Visible tiles are rerendered after continuous zooming stops. Photos or bitmaps e
 
 ### macOS says the application cannot be verified
 
-The DMG is not signed with an Apple Developer certificate or notarized. For the first launch, open `Applications` in Finder, Control-click EPS Live Viewer, choose **Open**, and confirm once more. Later launches work normally from `Applications`.
+If a Release is marked as unnotarized, open `Applications` in Finder for the first launch, Control-click EPS Live Viewer, choose **Open**, and confirm once more. Fully removing this warning requires a Developer ID certificate and Apple notarization. The release workflow now signs, notarizes, and staples automatically when credentials are configured; an ad-hoc signature cannot replace Apple's trust chain.
 
 ### Later frames have different resolutions
 
@@ -106,6 +112,8 @@ chmod +x build_unix.sh
 ```
 
 Pushing an `eps-live-viewer-v*` tag or manually running the [multi-platform release workflow](.github/workflows/eps-live-viewer-release.yml) builds on native Windows, Ubuntu, macOS Apple Silicon, and macOS Intel runners. It publishes platform packages, macOS DMGs, and SHA-256 checksums, then creates or updates a GitHub Release. PyInstaller does not cross-compile these desktop bundles from one operating system.
+
+For formal macOS signing and notarization, configure repository secrets named `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGNING_IDENTITY`, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_TEAM_ID`, and `MACOS_NOTARY_PASSWORD`. Without them, the workflow falls back to an ad-hoc-signed, unnotarized build.
 
 This project was developed primarily with the assistance of Codex.
 

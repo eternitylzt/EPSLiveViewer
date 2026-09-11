@@ -4,6 +4,8 @@
     "refresh_interval": 500,
     "background_mode": "transparent",
     "background_color": "#FFFFFF",
-    "export_dpi": 300
+    "export_dpi": 300,
+    "wheel_action": "zoom",
+    "language": "zh_CN"
 }
 

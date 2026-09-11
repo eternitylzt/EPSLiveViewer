@@ -14,7 +14,11 @@ from typing import Any
 
 
 APP_NAME = "EPS Live Viewer"
+APP_VERSION = "1.1.0"
+PROJECT_URL = "https://github.com/eternitylzt/EPSLiveViewer"
 BACKGROUND_MODES = ("transparent", "white", "custom")
+WHEEL_ACTIONS = ("zoom", "files", "pages")
+LANGUAGES = ("zh_CN", "en")
 MIN_REFRESH_INTERVAL = 100
 MAX_REFRESH_INTERVAL = 10_000
 MIN_EXPORT_DPI = 72
@@ -78,6 +82,8 @@ class AppConfig:
     background_mode: str = "transparent"
     background_color: str = "#FFFFFF"
     export_dpi: int = 300
+    wheel_action: str = "zoom"
+    language: str = "zh_CN"
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any]) -> "AppConfig":
@@ -90,6 +96,12 @@ class AppConfig:
         mode = str(raw.get("background_mode", defaults.background_mode)).strip().lower()
         if mode not in BACKGROUND_MODES:
             mode = defaults.background_mode
+        wheel_action = str(raw.get("wheel_action", defaults.wheel_action)).strip().lower()
+        if wheel_action not in WHEEL_ACTIONS:
+            wheel_action = defaults.wheel_action
+        language = str(raw.get("language", defaults.language)).strip()
+        if language not in LANGUAGES:
+            language = defaults.language
 
         legacy_or_export_dpi = raw.get("export_dpi", raw.get("dpi", defaults.export_dpi))
         configured_path = raw.get("ghostscript_path", "")
@@ -114,6 +126,8 @@ class AppConfig:
                 MIN_EXPORT_DPI,
                 MAX_EXPORT_DPI,
             ),
+            wheel_action=wheel_action,
+            language=language,
         )
 
 

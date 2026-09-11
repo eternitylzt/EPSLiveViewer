@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QStyle
 from PyQt6 import sip
 
 from config import SUPPORTED_SOURCE_SUFFIXES
+from i18n import tr
 
 
 class VectorPreviewError(RuntimeError):
@@ -56,6 +57,7 @@ TileKey = tuple[int, int, int]  # scale level, column, row
 class _RenderRequest:
     kind: str
     generation: int
+    page_index: int
     key: TileKey | None
     full_size: QSize
     clip: QRect
@@ -209,13 +211,16 @@ class _PdfPageItem(QGraphicsItem):
 
 
 class VectorGraphicsView(QGraphicsView):
-    """Interactive, tiled vector-source preview for a one-page PDF."""
+    """Interactive, tiled vector-source preview for a multi-page PDF."""
 
     zoom_changed = pyqtSignal(float)
     image_loaded = pyqtSignal(float, float)
+    page_changed = pyqtSignal(int, int)
     render_error = pyqtSignal(str)
     document_released = pyqtSignal(object)
     source_dropped = pyqtSignal(str)
+    file_navigation_requested = pyqtSignal(int)
+    page_navigation_requested = pyqtSignal(int)
 
     TILE_PIXELS = 768
     MAX_IN_FLIGHT = 4
@@ -232,6 +237,8 @@ class VectorGraphicsView(QGraphicsView):
         self.setScene(self._scene)
         self._page_item: _PdfPageItem | None = None
         self._active_context: _DocumentContext | None = None
+        self._page_index = 0
+        self._page_count = 0
         self._contexts: dict[int, _DocumentContext] = {}
         self._queued: deque[_RenderRequest] = deque()
         self._queued_keys: set[TileKey] = set()
@@ -239,6 +246,8 @@ class VectorGraphicsView(QGraphicsView):
         self._fit_mode = True
         self._background_mode = "transparent"
         self._background_color = QColor("#FFFFFF")
+        self._wheel_action = "zoom"
+        self._navigation_wheel_remainder = 0
         self._closed = False
 
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
@@ -309,6 +318,16 @@ class VectorGraphicsView(QGraphicsView):
         rect = self._page_item.boundingRect()
         return rect.width(), rect.height()
 
+    def current_page_index(self) -> int:
+        return self._page_index
+
+    def page_count(self) -> int:
+        return self._page_count
+
+    def set_wheel_action(self, action: str) -> None:
+        self._wheel_action = action if action in {"zoom", "files", "pages"} else "zoom"
+        self._navigation_wheel_remainder = 0
+
     def set_page_background(self, mode: str, color: str = "#FFFFFF") -> None:
         if mode not in {"transparent", "white", "custom"}:
             mode = "transparent"
@@ -319,7 +338,13 @@ class VectorGraphicsView(QGraphicsView):
         self._background_color = parsed
         self.viewport().update()
 
-    def load_pdf(self, filename: str | Path, generation: int, reset_view: bool = False) -> None:
+    def load_pdf(
+        self,
+        filename: str | Path,
+        generation: int,
+        reset_view: bool = False,
+        page_index: int = 0,
+    ) -> None:
         """Load and validate a unique PDF cache, then start tiled rendering.
 
         A newly opened file fits the window.  Live refreshes retain zoom and a
@@ -327,26 +352,28 @@ class VectorGraphicsView(QGraphicsView):
         changes between source generations.
         """
         if self._closed:
-            raise VectorPreviewError("预览窗口已关闭。")
+            raise VectorPreviewError(tr("预览窗口已关闭。"))
         path = Path(filename).resolve()
         if not path.is_file():
-            raise VectorPreviewError(f"找不到预览 PDF：{path}")
+            raise VectorPreviewError(tr("找不到预览 PDF：{path}", path=path))
 
         document = QPdfDocument(self)
         error = document.load(str(path))
         if error != QPdfDocument.Error.None_ or document.status() != QPdfDocument.Status.Ready:
             document.close()
             sip.delete(document)
-            raise VectorPreviewError("QtPdf 无法加载 Ghostscript 生成的预览 PDF。")
+            raise VectorPreviewError(tr("QtPdf 无法加载 Ghostscript 生成的预览 PDF。"))
         if document.pageCount() < 1:
             document.close()
             sip.delete(document)
-            raise VectorPreviewError("预览 PDF 不包含可显示的页面。")
-        point_size = document.pagePointSize(0)
+            raise VectorPreviewError(tr("预览 PDF 不包含可显示的页面。"))
+        page_count = document.pageCount()
+        page_index = max(0, min(int(page_index), page_count - 1))
+        point_size = document.pagePointSize(page_index)
         if not point_size.isValid() or point_size.width() <= 0 or point_size.height() <= 0:
             document.close()
             sip.delete(document)
-            raise VectorPreviewError("预览 PDF 的页面尺寸无效。")
+            raise VectorPreviewError(tr("预览 PDF 的页面尺寸无效。"))
 
         renderer = QPdfPageRenderer(self)
         renderer.setRenderMode(QPdfPageRenderer.RenderMode.MultiThreaded)
@@ -384,6 +411,8 @@ class VectorGraphicsView(QGraphicsView):
         self._scene.addItem(self._page_item)
         self._scene.setSceneRect(self._page_item.boundingRect())
         self._active_context = context
+        self._page_index = page_index
+        self._page_count = page_count
         self._contexts[generation] = context
 
         if reset_view or old_context is None:
@@ -399,8 +428,60 @@ class VectorGraphicsView(QGraphicsView):
             self._emit_zoom()
 
         self.image_loaded.emit(point_size.width(), point_size.height())
+        self.page_changed.emit(page_index, page_count)
         self._request_overview(context, point_size.width(), point_size.height())
         self._schedule_detail(immediate=True)
+
+    def set_page(self, page_index: int) -> bool:
+        """Display one page from the active vector PDF without reconversion."""
+        context = self._active_context
+        if (
+            context is None
+            or not context.active
+            or not 0 <= page_index < self._page_count
+            or page_index == self._page_index
+        ):
+            return False
+
+        old_rect = self._scene.sceneRect()
+        old_center = self.mapToScene(self.viewport().rect().center())
+        normalized_center = QPointF(0.5, 0.5)
+        if not old_rect.isEmpty():
+            normalized_center = QPointF(
+                (old_center.x() - old_rect.left()) / max(old_rect.width(), 1e-9),
+                (old_center.y() - old_rect.top()) / max(old_rect.height(), 1e-9),
+            )
+
+        point_size = context.document.pagePointSize(page_index)
+        if not point_size.isValid() or point_size.width() <= 0 or point_size.height() <= 0:
+            self.render_error.emit(tr("预览 PDF 的页面尺寸无效。"))
+            return False
+
+        self._detail_timer.stop()
+        self._queued.clear()
+        self._queued_keys.clear()
+        if self._page_item is not None:
+            self._scene.removeItem(self._page_item)
+        self._page_item = _PdfPageItem(point_size)
+        self._scene.addItem(self._page_item)
+        self._scene.setSceneRect(self._page_item.boundingRect())
+        self._page_index = page_index
+
+        if self._fit_mode:
+            self.fit_to_window()
+        else:
+            new_rect = self._scene.sceneRect()
+            self.centerOn(
+                new_rect.left() + normalized_center.x() * new_rect.width(),
+                new_rect.top() + normalized_center.y() * new_rect.height(),
+            )
+            self._emit_zoom()
+
+        self.image_loaded.emit(point_size.width(), point_size.height())
+        self.page_changed.emit(page_index, self._page_count)
+        self._request_overview(context, point_size.width(), point_size.height())
+        self._schedule_detail(immediate=True)
+        return True
 
     def fit_to_window(self) -> None:
         if not self.has_document() or self._scene.sceneRect().isEmpty():
@@ -442,10 +523,22 @@ class VectorGraphicsView(QGraphicsView):
         if not self.has_document() or delta == 0:
             event.ignore()
             return
-        steps = abs(delta) / 120.0
-        base = 1.35 if event.modifiers() & Qt.KeyboardModifier.ControlModifier else 1.15
-        factor = base**steps if delta > 0 else (1.0 / base) ** steps
-        self.zoom_by(factor)
+        control = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        if self._wheel_action == "zoom" or control:
+            steps = abs(delta) / 120.0
+            base = 1.35 if control else 1.15
+            factor = base**steps if delta > 0 else (1.0 / base) ** steps
+            self.zoom_by(factor)
+            self._navigation_wheel_remainder = 0
+        else:
+            self._navigation_wheel_remainder += delta
+            if abs(self._navigation_wheel_remainder) >= 120:
+                offset = -1 if self._navigation_wheel_remainder > 0 else 1
+                self._navigation_wheel_remainder = 0
+                if self._wheel_action == "files":
+                    self.file_navigation_requested.emit(offset)
+                else:
+                    self.page_navigation_requested.emit(offset)
         event.accept()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
@@ -504,12 +597,15 @@ class VectorGraphicsView(QGraphicsView):
         self._scene.setSceneRect(QRectF())
         active = self._active_context
         self._active_context = None
+        self._page_index = 0
+        self._page_count = 0
         if active is not None:
             active.active = False
         for context in list(self._contexts.values()):
             self._dispose_context(context, cancel=True)
         self._contexts.clear()
         self._in_flight = 0
+        self.page_changed.emit(-1, 0)
         self.viewport().update()
 
     def close(self) -> bool:  # type: ignore[override]
@@ -579,7 +675,9 @@ class VectorGraphicsView(QGraphicsView):
         pending_keys = {
             request.key
             for request in context.pending.values()
-            if request.kind == "tile" and request.key is not None
+            if request.kind == "tile"
+            and request.page_index == self._page_index
+            and request.key is not None
         }
         for row in range(top // tile, bottom // tile + 1):
             for column in range(left // tile, right // tile + 1):
@@ -602,7 +700,17 @@ class VectorGraphicsView(QGraphicsView):
                     scene_center.y() - center.y()
                 ) ** 2
                 requests.append(
-                    (distance, _RenderRequest("tile", context.generation, key, full_size, clip))
+                    (
+                        distance,
+                        _RenderRequest(
+                            "tile",
+                            context.generation,
+                            self._page_index,
+                            key,
+                            full_size,
+                            clip,
+                        ),
+                    )
                 )
 
         # Drop not-yet-submitted requests from obsolete zoom/pan states.
@@ -618,9 +726,11 @@ class VectorGraphicsView(QGraphicsView):
         scale = min(2.0, self.OVERVIEW_MAX_EDGE / max(width, height, 1.0))
         scale = max(scale, 0.125)
         size = QSize(max(1, int(math.ceil(width * scale))), max(1, int(math.ceil(height * scale))))
-        request = _RenderRequest("overview", context.generation, None, size, QRect())
+        request = _RenderRequest(
+            "overview", context.generation, self._page_index, None, size, QRect()
+        )
         options = QPdfDocumentRenderOptions()
-        request_id = context.renderer.requestPage(0, size, options)
+        request_id = context.renderer.requestPage(self._page_index, size, options)
         context.pending[request_id] = request
         self._in_flight += 1
 
@@ -641,7 +751,9 @@ class VectorGraphicsView(QGraphicsView):
             options.setScaledSize(request.full_size)
             options.setScaledClipRect(request.clip)
             output_size = request.clip.size()
-            request_id = context.renderer.requestPage(0, output_size, options)
+            request_id = context.renderer.requestPage(
+                request.page_index, output_size, options
+            )
             context.pending[request_id] = request
             self._in_flight += 1
 
@@ -662,9 +774,14 @@ class VectorGraphicsView(QGraphicsView):
             return
         self._in_flight = max(0, self._in_flight - 1)
 
-        if context.active and context is self._active_context and self._page_item is not None:
+        if (
+            context.active
+            and context is self._active_context
+            and self._page_item is not None
+            and request.page_index == self._page_index
+        ):
             if image.isNull():
-                self.render_error.emit("QtPdf 无法渲染预览区域。")
+                self.render_error.emit(tr("QtPdf 无法渲染预览区域。"))
             else:
                 pixmap = QPixmap.fromImage(image)
                 if request.kind == "overview":

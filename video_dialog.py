@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 from config import VIDEO_SOURCE_SUFFIXES, filename_sort_key
 from crop_dialog import CropSelectionDialog, NormalizedCrop
 from eps_renderer import EpsRenderer
+from i18n import tr
 from video_creator import VideoExportRequest
 
 
@@ -60,7 +61,7 @@ class VideoCreationDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("制作视频")
+        self.setWindowTitle(tr("制作视频"))
         self.setMinimumSize(860, 620)
         self.resize(980, 700)
         self._renderer = renderer
@@ -71,25 +72,26 @@ class VideoCreationDialog(QDialog):
 
         root = QVBoxLayout(self)
         folder_row = QHBoxLayout()
-        folder_row.addWidget(QLabel("源文件夹："))
+        folder_row.addWidget(QLabel(tr("源文件夹：")))
         self._folder_edit = QLineEdit()
         self._folder_edit.setReadOnly(True)
         folder_row.addWidget(self._folder_edit, 1)
-        browse_folder = QPushButton("选择文件夹…")
+        browse_folder = QPushButton(tr("选择文件夹…"))
         browse_folder.clicked.connect(self._choose_folder)
         folder_row.addWidget(browse_folder)
         root.addLayout(folder_row)
 
         hint = QLabel(
-            "支持 EPS、PS、PNG、JPG/JPEG。左侧文件按显示顺序逐帧写入；"
-            "可将不需要的文件移到右侧。"
+            tr(
+                "支持 EPS、PS、PNG、JPG/JPEG。左侧文件按显示顺序逐帧写入；可将不需要的文件移到右侧。"
+            )
         )
         hint.setWordWrap(True)
         root.addWidget(hint)
 
         list_grid = QGridLayout()
-        list_grid.addWidget(QLabel("参与视频"), 0, 0)
-        list_grid.addWidget(QLabel("已排除"), 0, 2)
+        list_grid.addWidget(QLabel(tr("参与视频")), 0, 0)
+        list_grid.addWidget(QLabel(tr("已排除")), 0, 2)
         self._included = self._new_list(allow_reorder=True)
         self._excluded = self._new_list(allow_reorder=False)
         self._included.model().rowsMoved.connect(lambda *_args: self._sync_reference())
@@ -102,11 +104,11 @@ class VideoCreationDialog(QDialog):
         list_grid.addWidget(self._included, 1, 0)
         move_buttons = QVBoxLayout()
         move_buttons.addStretch(1)
-        exclude_button = QPushButton("排除 →")
+        exclude_button = QPushButton(tr("排除 →"))
         exclude_button.clicked.connect(
             lambda: self._move_selected(self._included, self._excluded)
         )
-        include_button = QPushButton("← 加回")
+        include_button = QPushButton(tr("← 加回"))
         include_button.clicked.connect(
             lambda: self._move_selected(self._excluded, self._included)
         )
@@ -120,8 +122,8 @@ class VideoCreationDialog(QDialog):
         self._count_label = QLabel()
         order_row.addWidget(self._count_label)
         order_row.addStretch(1)
-        up_button = QPushButton("上移")
-        down_button = QPushButton("下移")
+        up_button = QPushButton(tr("上移"))
+        down_button = QPushButton(tr("下移"))
         up_button.clicked.connect(lambda: self._move_order(-1))
         down_button.clicked.connect(lambda: self._move_order(1))
         order_row.addWidget(up_button)
@@ -130,33 +132,33 @@ class VideoCreationDialog(QDialog):
         root.addLayout(list_grid, 1)
 
         crop_row = QHBoxLayout()
-        self._reference_label = QLabel("首帧：—")
+        self._reference_label = QLabel(tr("首帧：—"))
         self._reference_label.setWordWrap(True)
         crop_row.addWidget(self._reference_label, 1)
-        self._crop_button = QPushButton("预览并选择区域…")
+        self._crop_button = QPushButton(tr("预览并选择区域…"))
         self._crop_button.clicked.connect(self._choose_crop_region)
         self._crop_button.setEnabled(False)
         crop_row.addWidget(self._crop_button)
-        self._clear_crop_button = QPushButton("恢复完整图像")
+        self._clear_crop_button = QPushButton(tr("恢复完整图像"))
         self._clear_crop_button.clicked.connect(self._clear_crop)
         self._clear_crop_button.setEnabled(False)
         crop_row.addWidget(self._clear_crop_button)
         root.addLayout(crop_row)
 
-        options = QGroupBox("输出参数")
+        options = QGroupBox(tr("输出参数"))
         form = QFormLayout(options)
         self._format_combo = QComboBox()
-        self._format_combo.addItem("MP4 视频", "mp4")
-        self._format_combo.addItem("GIF 动图", "gif")
+        self._format_combo.addItem(tr("MP4 视频"), "mp4")
+        self._format_combo.addItem(tr("GIF 动图"), "gif")
         self._format_combo.currentIndexChanged.connect(self._format_changed)
-        form.addRow("格式：", self._format_combo)
+        form.addRow(tr("格式："), self._format_combo)
 
         self._preset_combo = QComboBox()
         for preset in _PRESETS:
             self._preset_combo.addItem(preset.label, (preset.width, preset.height))
-        self._preset_combo.addItem("自定义", None)
+        self._preset_combo.addItem(tr("自定义"), None)
         self._preset_combo.currentIndexChanged.connect(self._preset_changed)
-        form.addRow("分辨率：", self._preset_combo)
+        form.addRow(tr("分辨率："), self._preset_combo)
 
         dimensions = QHBoxLayout()
         self._width_spin = self._dimension_spin(1920)
@@ -167,33 +169,34 @@ class VideoCreationDialog(QDialog):
         dimensions.addWidget(QLabel("×"))
         dimensions.addWidget(self._height_spin)
         dimensions.addStretch(1)
-        form.addRow("画布（像素）：", dimensions)
+        form.addRow(tr("画布（像素）："), dimensions)
 
         self._fps_spin = QSpinBox()
         self._fps_spin.setRange(1, 60)
         self._fps_spin.setValue(10)
         self._fps_spin.setSuffix(" FPS")
-        form.addRow("帧率：", self._fps_spin)
+        form.addRow(tr("帧率："), self._fps_spin)
 
         self._color_button = QPushButton()
         self._color_button.clicked.connect(self._choose_color)
         self._update_color_button()
-        form.addRow("背景：", self._color_button)
+        form.addRow(tr("背景："), self._color_button)
 
         output_row = QHBoxLayout()
         self._output_edit = QLineEdit()
         output_row.addWidget(self._output_edit, 1)
-        browse_output = QPushButton("浏览…")
+        browse_output = QPushButton(tr("浏览…"))
         browse_output.clicked.connect(self._choose_output)
         output_row.addWidget(browse_output)
-        form.addRow("输出文件：", output_row)
+        form.addRow(tr("输出文件："), output_row)
         root.addWidget(options)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save
             | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText("开始生成")
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText(tr("开始生成"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("取消"))
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -223,7 +226,7 @@ class VideoCreationDialog(QDialog):
     def _choose_folder(self) -> None:
         chosen = QFileDialog.getExistingDirectory(
             self,
-            "选择序列文件夹",
+            tr("选择序列文件夹"),
             self._folder_edit.text() or str(Path.home()),
         )
         if chosen:
@@ -240,7 +243,7 @@ class VideoCreationDialog(QDialog):
                 key=filename_sort_key,
             )
         except OSError as error:
-            QMessageBox.warning(self, "无法读取文件夹", str(error))
+            QMessageBox.warning(self, tr("无法读取文件夹"), str(error))
             return
         self._folder_edit.setText(str(folder.resolve()))
         self._included.clear()
@@ -283,7 +286,11 @@ class VideoCreationDialog(QDialog):
 
     def _update_count(self) -> None:
         self._count_label.setText(
-            f"参与 {self._included.count()} 个；排除 {self._excluded.count()} 个"
+            tr(
+                "参与 {included} 个；排除 {excluded} 个",
+                included=self._included.count(),
+                excluded=self._excluded.count(),
+            )
         )
 
     def _first_source(self) -> Path | None:
@@ -299,7 +306,9 @@ class VideoCreationDialog(QDialog):
         if image.isNull():
             detail = reader.errorString().strip()
             suffix = f"：{detail}" if detail else ""
-            raise RuntimeError(f"无法读取图片 {source.name}{suffix}")
+            raise RuntimeError(
+                tr("无法读取图片 {name}{suffix}", name=source.name, suffix=suffix)
+            )
         return image
 
     def _set_dimensions(self, width: int, height: int) -> None:
@@ -318,7 +327,9 @@ class VideoCreationDialog(QDialog):
         try:
             image = self._read_raster_image(source)
         except RuntimeError as error:
-            self._reference_label.setText(f"首帧：{source.name}（{error}）")
+            self._reference_label.setText(
+                tr("首帧：{name}（{error}）", name=source.name, error=error)
+            )
             return
         self._reference_raster_size = (image.width(), image.height())
         self._set_dimensions(image.width(), image.height())
@@ -333,19 +344,26 @@ class VideoCreationDialog(QDialog):
         self._clear_crop_button.setEnabled(False)
         self._crop_button.setEnabled(source is not None)
         if source is None:
-            self._reference_label.setText("首帧：—")
+            self._reference_label.setText(tr("首帧：—"))
             return
-        self._reference_label.setText(f"首帧：{source.name}　使用完整图像")
+        self._reference_label.setText(
+            tr("首帧：{name}　使用完整图像", name=source.name)
+        )
         self._remember_raster_size(source)
         if self._reference_raster_size is not None:
             width, height = self._reference_raster_size
             self._reference_label.setText(
-                f"首帧：{source.name}　{width} × {height} 像素　使用完整图像"
+                tr(
+                    "首帧：{name}　{width} × {height} 像素　使用完整图像",
+                    name=source.name,
+                    width=width,
+                    height=height,
+                )
             )
 
     def _load_reference_preview(self) -> QImage:
         if self._reference_source is None:
-            raise RuntimeError("没有可预览的首帧。")
+            raise RuntimeError(tr("没有可预览的首帧。"))
         if self._reference_source.suffix.lower() not in {".eps", ".ps"}:
             return self._read_raster_image(self._reference_source)
 
@@ -369,7 +387,7 @@ class VideoCreationDialog(QDialog):
         try:
             image = self._load_reference_preview()
         except Exception as error:
-            QMessageBox.warning(self, "无法预览首帧", str(error))
+            QMessageBox.warning(self, tr("无法预览首帧"), str(error))
             return
         dialog = CropSelectionDialog(
             image,
@@ -385,14 +403,21 @@ class VideoCreationDialog(QDialog):
             if self._reference_raster_size is not None:
                 self._set_dimensions(*self._reference_raster_size)
             self._reference_label.setText(
-                f"首帧：{self._reference_source.name}　使用完整图像"
+                tr(
+                    "首帧：{name}　使用完整图像",
+                    name=self._reference_source.name,
+                )
             )
             self._clear_crop_button.setEnabled(False)
             return
         self._set_dimensions(crop_width, crop_height)
         self._reference_label.setText(
-            f"首帧：{self._reference_source.name}　"
-            f"选定区域 {crop_width} × {crop_height} 像素；后续帧按相同比例裁剪"
+            tr(
+                "首帧：{name}　选定区域 {width} × {height} 像素；后续帧按相同比例裁剪",
+                name=self._reference_source.name,
+                width=crop_width,
+                height=crop_height,
+            )
         )
         self._clear_crop_button.setEnabled(True)
 
@@ -405,12 +430,19 @@ class VideoCreationDialog(QDialog):
             self._set_dimensions(*self._reference_raster_size)
             width, height = self._reference_raster_size
             self._reference_label.setText(
-                f"首帧：{self._reference_source.name}　"
-                f"{width} × {height} 像素　使用完整图像"
+                tr(
+                    "首帧：{name}　{width} × {height} 像素　使用完整图像",
+                    name=self._reference_source.name,
+                    width=width,
+                    height=height,
+                )
             )
         else:
             self._reference_label.setText(
-                f"首帧：{self._reference_source.name}　使用完整图像"
+                tr(
+                    "首帧：{name}　使用完整图像",
+                    name=self._reference_source.name,
+                )
             )
 
     def _preset_changed(self, index: int) -> None:
@@ -440,7 +472,7 @@ class VideoCreationDialog(QDialog):
         color = QColorDialog.getColor(
             self._background_color,
             self,
-            "选择视频背景颜色",
+            tr("选择视频背景颜色"),
         )
         if color.isValid():
             self._background_color = color
@@ -461,10 +493,14 @@ class VideoCreationDialog(QDialog):
 
     def _choose_output(self) -> None:
         output_format = self._format_combo.currentData()
-        file_filter = "MP4 视频 (*.mp4)" if output_format == "mp4" else "GIF 动图 (*.gif)"
+        file_filter = (
+            tr("MP4 视频 (*.mp4)")
+            if output_format == "mp4"
+            else tr("GIF 动图 (*.gif)")
+        )
         filename, _ = QFileDialog.getSaveFileName(
             self,
-            "保存视频",
+            tr("保存视频"),
             self._output_edit.text(),
             file_filter,
         )
@@ -475,7 +511,9 @@ class VideoCreationDialog(QDialog):
 
     def _validate_and_accept(self) -> None:
         if self._included.count() == 0:
-            QMessageBox.warning(self, "无法生成视频", "请至少保留一个参与视频的文件。")
+            QMessageBox.warning(
+                self, tr("无法生成视频"), tr("请至少保留一个参与视频的文件。")
+            )
             return
         output_format = str(self._format_combo.currentData())
         width = self._width_spin.value()
@@ -483,17 +521,19 @@ class VideoCreationDialog(QDialog):
         if width * height > 33_177_600:
             QMessageBox.warning(
                 self,
-                "分辨率过大",
-                "画布像素总数不能超过 8K UHD（7680 × 4320）。",
+                tr("分辨率过大"),
+                tr("画布像素总数不能超过 8K UHD（7680 × 4320）。"),
             )
             return
         output_text = self._output_edit.text().strip()
         if not output_text:
-            QMessageBox.warning(self, "输出路径无效", "请选择输出文件。")
+            QMessageBox.warning(self, tr("输出路径无效"), tr("请选择输出文件。"))
             return
         target = Path(output_text).expanduser().with_suffix(f".{output_format}")
         if target.resolve() in self.selected_files():
-            QMessageBox.warning(self, "输出路径无效", "输出文件不能覆盖序列源文件。")
+            QMessageBox.warning(
+                self, tr("输出路径无效"), tr("输出文件不能覆盖序列源文件。")
+            )
             return
         self._output_edit.setText(str(target))
         self.accept()

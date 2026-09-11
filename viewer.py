@@ -11,15 +11,22 @@ from PyQt6.QtCore import Qt, QObject, QSettings, QThread, QTimer, pyqtSignal, py
 from PyQt6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
     QProgressDialog,
+    QStyle,
+    QTextBrowser,
+    QToolBar,
+    QVBoxLayout,
 )
 
 from config import (
     APP_NAME,
+    APP_VERSION,
+    PROJECT_URL,
     AppConfig,
     ConfigManager,
     SUPPORTED_SOURCE_SUFFIXES,
@@ -34,6 +41,7 @@ from eps_renderer import (
     PdfRenderResult,
 )
 from file_monitor import EpsFileMonitor
+from i18n import set_language, tr
 from video_creator import (
     VideoExportCancelled,
     VideoExporter,
@@ -100,6 +108,7 @@ class ExportRequest:
     dpi: int
     background_mode: str
     background_color: str
+    page_number: int = 1
 
 
 @dataclass(frozen=True)
@@ -133,6 +142,7 @@ class ExportWorker(QObject):
                 background=self._request.background_mode,
                 background_color=self._request.background_color,
                 cancel_event=self._cancel_event,
+                page_number=self._request.page_number,
             )
         except Exception as error:
             self.failed.emit(ExportFailure(self._request, error))
@@ -181,6 +191,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._config_manager = config_manager
         self._config: AppConfig = config_manager.load()
+        set_language(self._config.language)
         self._renderer = EpsRenderer(self._config.ghostscript_path)
         self._monitor = EpsFileMonitor(self._config.refresh_interval, self)
         self._monitor.file_changed.connect(self._on_source_changed)
@@ -189,6 +200,7 @@ class MainWindow(QMainWindow):
         self._current_pdf: Path | None = None
         self._generation = 0
         self._automatic_failure_count = 0
+        self._last_updated_timestamp = ""
         self._closing = False
 
         self._preview_thread: QThread | None = None
@@ -202,6 +214,8 @@ class MainWindow(QMainWindow):
         self._video_progress: QProgressDialog | None = None
         self._siblings: list[Path] = []
         self._sibling_index = -1
+        self._current_page_index = 0
+        self._page_count = 0
         self._settings = QSettings()
 
         self.setWindowTitle(APP_NAME)
@@ -214,16 +228,22 @@ class MainWindow(QMainWindow):
             self._config.background_mode,
             self._config.background_color,
         )
+        self._view.set_wheel_action(self._config.wheel_action)
         self._view.zoom_changed.connect(self._update_zoom_status)
         self._view.image_loaded.connect(self._update_page_size_status)
+        self._view.page_changed.connect(self._on_page_changed)
         self._view.render_error.connect(self._on_vector_render_error)
         self._view.document_released.connect(self._renderer.cache.release)
         self._view.source_dropped.connect(self.open_eps)
+        self._view.file_navigation_requested.connect(self._navigate_sibling)
+        self._view.page_navigation_requested.connect(self._navigate_page)
         self.setCentralWidget(self._view)
 
         self._create_actions()
         self._create_menus()
+        self._create_toolbar()
         self._create_status_bar()
+        self._retranslate_ui()
         self._monitor.set_enabled(self._config.auto_refresh)
 
     # ----- UI construction -------------------------------------------------
@@ -282,45 +302,90 @@ class MainWindow(QMainWindow):
         self._next_file_action.setEnabled(False)
         self._next_file_action.triggered.connect(lambda: self._navigate_sibling(1))
 
+        self._previous_page_action = QAction("上一页(&U)", self)
+        self._previous_page_action.setShortcut(QKeySequence("Up"))
+        self._previous_page_action.setEnabled(False)
+        self._previous_page_action.triggered.connect(lambda: self._navigate_page(-1))
+
+        self._next_page_action = QAction("下一页(&D)", self)
+        self._next_page_action.setShortcut(QKeySequence("Down"))
+        self._next_page_action.setEnabled(False)
+        self._next_page_action.triggered.connect(lambda: self._navigate_page(1))
+
         self._about_action = QAction("关于(&A)", self)
         self._about_action.triggered.connect(self._show_about)
 
     def _create_menus(self) -> None:
         menu_bar = self.menuBar()
-        file_menu = menu_bar.addMenu("文件(&F)")
-        file_menu.addAction(self._open_action)
-        file_menu.addAction(self._reload_action)
-        file_menu.addAction(self._save_png_action)
-        file_menu.addAction(self._make_video_action)
-        file_menu.addSeparator()
-        self._recent_menu = file_menu.addMenu("最近打开文件")
+        self._file_menu = menu_bar.addMenu("文件(&F)")
+        self._file_menu.addAction(self._open_action)
+        self._file_menu.addAction(self._reload_action)
+        self._file_menu.addAction(self._save_png_action)
+        self._file_menu.addAction(self._make_video_action)
+        self._file_menu.addSeparator()
+        self._recent_menu = self._file_menu.addMenu("最近打开文件")
         self._update_recent_menu()
-        file_menu.addSeparator()
-        file_menu.addAction(self._settings_action)
-        file_menu.addSeparator()
-        file_menu.addAction(self._exit_action)
+        self._file_menu.addSeparator()
+        self._file_menu.addAction(self._settings_action)
+        self._file_menu.addSeparator()
+        self._file_menu.addAction(self._exit_action)
 
-        view_menu = menu_bar.addMenu("查看(&V)")
-        view_menu.addAction(self._previous_file_action)
-        view_menu.addAction(self._next_file_action)
-        view_menu.addSeparator()
-        view_menu.addAction(self._zoom_in_action)
-        view_menu.addAction(self._zoom_out_action)
-        view_menu.addAction(self._fit_action)
-        view_menu.addSeparator()
-        view_menu.addAction(self._auto_refresh_action)
+        self._view_menu = menu_bar.addMenu("查看(&V)")
+        self._view_menu.addAction(self._previous_file_action)
+        self._view_menu.addAction(self._next_file_action)
+        self._view_menu.addSeparator()
+        self._view_menu.addAction(self._previous_page_action)
+        self._view_menu.addAction(self._next_page_action)
+        self._view_menu.addSeparator()
+        self._view_menu.addAction(self._zoom_in_action)
+        self._view_menu.addAction(self._zoom_out_action)
+        self._view_menu.addAction(self._fit_action)
+        self._view_menu.addSeparator()
+        self._view_menu.addAction(self._auto_refresh_action)
 
-        help_menu = menu_bar.addMenu("帮助(&H)")
-        help_menu.addAction(self._about_action)
+        self._help_menu = menu_bar.addMenu("帮助(&H)")
+        self._help_menu.addAction(self._about_action)
+
+    def _create_toolbar(self) -> None:
+        self._toolbar = QToolBar("快捷工具", self)
+        self._toolbar.setObjectName("mainToolbar")
+        self._toolbar.setMovable(False)
+        self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        standard = QStyle.StandardPixmap
+        self._open_action.setIcon(self.style().standardIcon(standard.SP_DialogOpenButton))
+        self._reload_action.setIcon(self.style().standardIcon(standard.SP_BrowserReload))
+        self._save_png_action.setIcon(self.style().standardIcon(standard.SP_DialogSaveButton))
+        self._previous_file_action.setIcon(self.style().standardIcon(standard.SP_ArrowLeft))
+        self._next_file_action.setIcon(self.style().standardIcon(standard.SP_ArrowRight))
+        self._previous_page_action.setIcon(self.style().standardIcon(standard.SP_ArrowUp))
+        self._next_page_action.setIcon(self.style().standardIcon(standard.SP_ArrowDown))
+        for action in (
+            self._open_action,
+            self._reload_action,
+            self._previous_file_action,
+            self._next_file_action,
+            self._previous_page_action,
+            self._next_page_action,
+        ):
+            self._toolbar.addAction(action)
+        self._toolbar.addSeparator()
+        self._toolbar.addAction(self._zoom_out_action)
+        self._toolbar.addAction(self._zoom_in_action)
+        self._toolbar.addAction(self._fit_action)
+        self._toolbar.addSeparator()
+        self._toolbar.addAction(self._save_png_action)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self._toolbar)
 
     def _create_status_bar(self) -> None:
         status = self.statusBar()
         self._filename_label = QLabel("未打开文件")
         self._page_size_label = QLabel("页面：—")
+        self._page_number_label = QLabel("页码：—")
         self._zoom_label = QLabel("缩放：—")
         self._updated_label = QLabel("更新时间：—")
         self._filename_label.setMinimumWidth(220)
         status.addWidget(self._filename_label, 1)
+        status.addPermanentWidget(self._page_number_label)
         status.addPermanentWidget(self._page_size_label)
         status.addPermanentWidget(self._zoom_label)
         status.addPermanentWidget(self._updated_label)
@@ -330,9 +395,9 @@ class MainWindow(QMainWindow):
     def _choose_file(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(
             self,
-            "打开 EPS/PS 文件",
+            tr("打开 EPS/PS 文件"),
             str(self._current_file.parent if self._current_file else Path.home()),
-            "EPS / PS 文件 (*.eps *.EPS *.ps *.PS);;所有文件 (*.*)",
+            tr("EPS / PS 文件 (*.eps *.EPS *.ps *.PS);;所有文件 (*.*)"),
         )
         if filename:
             self.open_eps(filename)
@@ -341,10 +406,14 @@ class MainWindow(QMainWindow):
         """Open an EPS or PostScript path and queue a vector conversion."""
         source = Path(filename).expanduser().resolve()
         if not source.is_file():
-            self.show_nonfatal_error("打开失败", f"找不到文件：\n{source}")
+            self.show_nonfatal_error(
+                tr("打开失败"), tr("找不到文件：\n{path}", path=source)
+            )
             return
         if source.suffix.lower() not in SUPPORTED_SOURCE_SUFFIXES:
-            self.show_nonfatal_error("打开失败", "请选择扩展名为 .eps 或 .ps 的文件。")
+            self.show_nonfatal_error(
+                tr("打开失败"), tr("请选择扩展名为 .eps 或 .ps 的文件。")
+            )
             return
 
         is_new_file = self._current_file != source
@@ -352,15 +421,20 @@ class MainWindow(QMainWindow):
             self._cancel_active_preview()
             self._current_file = source
             self._current_pdf = None
+            self._current_page_index = 0
+            self._page_count = 0
             self._view.clear_document()
             self._monitor.set_file(source)
             self._refresh_sibling_navigation()
-            self._page_size_label.setText("页面：正在转换")
-            self._zoom_label.setText("缩放：—")
-            self._updated_label.setText("更新时间：—")
+            self._page_size_label.setText(tr("页面：正在转换"))
+            self._page_number_label.setText(tr("页码：—"))
+            self._zoom_label.setText(tr("缩放：—"))
+            self._updated_label.setText(tr("更新时间：—"))
             self.setWindowTitle(f"{APP_NAME} — {source.name}")
             self._reload_action.setEnabled(True)
             self._save_png_action.setEnabled(True)
+            self._previous_page_action.setEnabled(False)
+            self._next_page_action.setEnabled(False)
 
         self._automatic_failure_count = 0
         self._generation += 1
@@ -397,14 +471,14 @@ class MainWindow(QMainWindow):
         self._previous_file_action.setEnabled(has_previous)
         self._next_file_action.setEnabled(has_next)
         self._previous_file_action.setToolTip(
-            f"上一个：{self._siblings[self._sibling_index - 1].name}"
+            tr("上一个：{name}", name=self._siblings[self._sibling_index - 1].name)
             if has_previous
-            else "没有上一个 EPS/PS 文件"
+            else tr("没有上一个 EPS/PS 文件")
         )
         self._next_file_action.setToolTip(
-            f"下一个：{self._siblings[self._sibling_index + 1].name}"
+            tr("下一个：{name}", name=self._siblings[self._sibling_index + 1].name)
             if has_next
-            else "没有下一个 EPS/PS 文件"
+            else tr("没有下一个 EPS/PS 文件")
         )
         if self._current_file is not None:
             position = (
@@ -421,6 +495,12 @@ class MainWindow(QMainWindow):
         if not 0 <= target_index < len(self._siblings):
             return
         self.open_eps(self._siblings[target_index])
+
+    def _navigate_page(self, offset: int) -> None:
+        """Move within a multi-page EPS/PS document without reconversion."""
+        if self._page_count <= 1:
+            return
+        self._view.set_page(self._current_page_index + offset)
 
     def _recent_files(self) -> list[str]:
         saved = self._settings.value("recentFiles", [])
@@ -447,7 +527,7 @@ class MainWindow(QMainWindow):
         self._recent_menu.clear()
         files = self._recent_files()
         if not files:
-            placeholder = self._recent_menu.addAction("（暂无最近文件）")
+            placeholder = self._recent_menu.addAction(tr("（暂无最近文件）"))
             placeholder.setEnabled(False)
             return
         for filename in files:
@@ -460,7 +540,9 @@ class MainWindow(QMainWindow):
 
     def _open_recent(self, filename: str) -> None:
         if not Path(filename).is_file():
-            self.show_nonfatal_error("最近文件不可用", f"文件已不存在：\n{filename}")
+            self.show_nonfatal_error(
+                tr("最近文件不可用"), tr("文件已不存在：\n{path}", path=filename)
+            )
             self._remove_recent_file(filename)
             return
         self.open_eps(filename)
@@ -522,6 +604,7 @@ class MainWindow(QMainWindow):
                 result.pdf_path,
                 request.generation,
                 reset_view=request.reset_view,
+                page_index=self._current_page_index,
             )
         except VectorPreviewError as error:
             self._renderer.cache.release(result.pdf_path)
@@ -531,7 +614,8 @@ class MainWindow(QMainWindow):
         self._add_recent_file(result.source)
         self._automatic_failure_count = 0
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self._updated_label.setText(f"更新时间：{timestamp}")
+        self._last_updated_timestamp = timestamp
+        self._updated_label.setText(tr("更新时间：{timestamp}", timestamp=timestamp))
         # Keep the filename and sibling position visible after a successful
         # refresh instead of replacing them with a transient status message.
         self.statusBar().clearMessage()
@@ -550,18 +634,22 @@ class MainWindow(QMainWindow):
     def _handle_preview_error(self, request: PreviewRequest, error: Exception) -> None:
         if isinstance(error, EpsRenderCancelledError):
             return
-        message = str(error) or "发生未知预览错误。"
+        message = str(error) or tr("发生未知预览错误。")
         self.statusBar().showMessage(message, 6000)
         if isinstance(error, GhostscriptNotFoundError):
             if not request.automatic:
-                self.show_nonfatal_error("未找到 Ghostscript", message)
+                self.show_nonfatal_error(tr("未找到 Ghostscript"), message)
             return
         if request.automatic:
             self._automatic_failure_count += 1
             if self._automatic_failure_count <= 5:
                 QTimer.singleShot(500, lambda req=request: self._retry_preview(req))
             return
-        title = "EPS/PS 文件无法解析" if isinstance(error, EpsRenderError) else "预览失败"
+        title = (
+            tr("EPS/PS 文件无法解析")
+            if isinstance(error, EpsRenderError)
+            else tr("预览失败")
+        )
         self.show_nonfatal_error(title, message)
 
     def _retry_preview(self, request: PreviewRequest) -> None:
@@ -604,8 +692,13 @@ class MainWindow(QMainWindow):
     def _show_export_dialog(self) -> None:
         if self._current_file is None:
             return
+        initial_output = self._current_file.with_suffix(".png")
+        if self._page_count > 1:
+            initial_output = initial_output.with_name(
+                f"{initial_output.stem}_page{self._current_page_index + 1}.png"
+            )
         dialog = PngExportDialog(
-            self._current_file.with_suffix(".png"), self._config.export_dpi, self
+            initial_output, self._config.export_dpi, self
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -613,8 +706,8 @@ class MainWindow(QMainWindow):
         if target.exists():
             answer = QMessageBox.question(
                 self,
-                "覆盖 PNG 文件",
-                f"文件已存在，是否覆盖？\n{target}",
+                tr("覆盖 PNG 文件"),
+                tr("文件已存在，是否覆盖？\n{path}", path=target),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -627,15 +720,16 @@ class MainWindow(QMainWindow):
                 dpi,
                 self._config.background_mode,
                 self._config.background_color,
+                self._current_page_index + 1,
             )
         )
 
     def _start_export(self, request: ExportRequest) -> None:
         if self._export_thread is not None:
-            self.statusBar().showMessage("已有 PNG 导出任务正在进行。", 4000)
+            self.statusBar().showMessage(tr("已有 PNG 导出任务正在进行。"), 4000)
             return
         self._save_png_action.setEnabled(False)
-        self.statusBar().showMessage(f"正在导出 {request.dpi} DPI PNG…")
+        self.statusBar().showMessage(tr("正在导出 {dpi} DPI PNG…", dpi=request.dpi))
         thread = QThread(self)
         worker = ExportWorker(self._renderer, request)
         worker.moveToThread(thread)
@@ -657,19 +751,21 @@ class MainWindow(QMainWindow):
     def _on_export_succeeded(self, output: Path) -> None:
         if self._closing:
             return
-        self.statusBar().showMessage(f"PNG 已保存：{output}", 6000)
-        QMessageBox.information(self, "PNG 导出完成", f"已保存：\n{output}")
+        self.statusBar().showMessage(tr("PNG 已保存：{path}", path=output), 6000)
+        QMessageBox.information(
+            self, tr("PNG 导出完成"), tr("已保存：\n{path}", path=output)
+        )
 
     @pyqtSlot(object)
     def _on_export_failed(self, failure: ExportFailure) -> None:
         if self._closing or isinstance(failure.error, EpsRenderCancelledError):
             return
-        message = str(failure.error) or "PNG 导出失败。"
+        message = str(failure.error) or tr("PNG 导出失败。")
         self.statusBar().showMessage(message, 6000)
         title = (
-            "未找到 Ghostscript"
+            tr("未找到 Ghostscript")
             if isinstance(failure.error, GhostscriptNotFoundError)
-            else "PNG 导出失败"
+            else tr("PNG 导出失败")
         )
         self.show_nonfatal_error(title, message)
 
@@ -685,7 +781,7 @@ class MainWindow(QMainWindow):
 
     def _show_video_dialog(self) -> None:
         if self._video_thread is not None:
-            self.statusBar().showMessage("已有视频生成任务正在进行。", 4000)
+            self.statusBar().showMessage(tr("已有视频生成任务正在进行。"), 4000)
             return
         saved_folder = self._settings.value("lastVideoFolder", "")
         initial_folder = (
@@ -702,8 +798,8 @@ class MainWindow(QMainWindow):
         if request.target.exists():
             answer = QMessageBox.question(
                 self,
-                "覆盖输出文件",
-                f"文件已存在，是否覆盖？\n{request.target}",
+                tr("覆盖输出文件"),
+                tr("文件已存在，是否覆盖？\n{path}", path=request.target),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -716,13 +812,13 @@ class MainWindow(QMainWindow):
     def _start_video_export(self, request: VideoExportRequest) -> None:
         self._make_video_action.setEnabled(False)
         progress = QProgressDialog(
-            "正在准备视频帧…",
-            "取消",
+            tr("正在准备视频帧…"),
+            tr("取消"),
             0,
             len(request.sources) + 1,
             self,
         )
-        progress.setWindowTitle("制作视频")
+        progress.setWindowTitle(tr("制作视频"))
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setAutoClose(False)
         progress.setAutoReset(False)
@@ -746,7 +842,7 @@ class MainWindow(QMainWindow):
         self._video_thread = thread
         self._video_worker = worker
         self._video_progress = progress
-        self.statusBar().showMessage("正在生成视频…")
+        self.statusBar().showMessage(tr("正在生成视频…"))
         thread.start()
 
     @pyqtSlot(int, int, str)
@@ -764,8 +860,10 @@ class MainWindow(QMainWindow):
         if self._video_progress is not None:
             self._video_progress.setValue(self._video_progress.maximum())
             self._video_progress.close()
-        self.statusBar().showMessage(f"视频已保存：{output}", 6000)
-        QMessageBox.information(self, "视频生成完成", f"已保存：\n{output}")
+        self.statusBar().showMessage(tr("视频已保存：{path}", path=output), 6000)
+        QMessageBox.information(
+            self, tr("视频生成完成"), tr("已保存：\n{path}", path=output)
+        )
 
     @pyqtSlot(object)
     def _on_video_failed(self, error: Exception) -> None:
@@ -773,11 +871,11 @@ class MainWindow(QMainWindow):
             self._video_progress.close()
         if self._closing or isinstance(error, VideoExportCancelled):
             if not self._closing:
-                self.statusBar().showMessage("视频生成已取消。", 4000)
+                self.statusBar().showMessage(tr("视频生成已取消。"), 4000)
             return
-        message = str(error) or "视频生成失败。"
+        message = str(error) or tr("视频生成失败。")
         self.statusBar().showMessage(message, 6000)
-        self.show_nonfatal_error("视频生成失败", message)
+        self.show_nonfatal_error(tr("视频生成失败"), message)
 
     def _on_video_thread_finished(self, thread: QThread) -> None:
         if thread is not self._video_thread:
@@ -792,6 +890,54 @@ class MainWindow(QMainWindow):
 
     # ----- Settings and status --------------------------------------------
 
+    def _retranslate_ui(self) -> None:
+        action_texts = (
+            (self._open_action, "打开 EPS/PS(&O)…"),
+            (self._reload_action, "重新加载(&R)"),
+            (self._save_png_action, "另存为 PNG(&S)…"),
+            (self._make_video_action, "制作视频/动图(&V)…"),
+            (self._settings_action, "设置(&P)…"),
+            (self._exit_action, "退出(&X)"),
+            (self._zoom_in_action, "放大(&I)"),
+            (self._zoom_out_action, "缩小(&O)"),
+            (self._fit_action, "适应窗口(&F)"),
+            (self._auto_refresh_action, "自动刷新(&A)"),
+            (self._previous_file_action, "上一个文件(&P)"),
+            (self._next_file_action, "下一个文件(&N)"),
+            (self._previous_page_action, "上一页(&U)"),
+            (self._next_page_action, "下一页(&D)"),
+            (self._about_action, "关于(&A)"),
+        )
+        for action, source in action_texts:
+            action.setText(tr(source))
+        self._file_menu.setTitle(tr("文件(&F)"))
+        self._recent_menu.setTitle(tr("最近打开文件"))
+        self._view_menu.setTitle(tr("查看(&V)"))
+        self._help_menu.setTitle(tr("帮助(&H)"))
+        self._toolbar.setWindowTitle(tr("快捷工具"))
+        self._update_recent_menu()
+
+        if self._current_file is None:
+            self._filename_label.setText(tr("未打开文件"))
+            self._page_size_label.setText(tr("页面：—"))
+            self._page_number_label.setText(tr("页码：—"))
+            self._zoom_label.setText(tr("缩放：—"))
+            self._updated_label.setText(tr("更新时间：—"))
+            self.setWindowTitle(APP_NAME)
+        else:
+            self._refresh_sibling_navigation()
+            page_size = self._view.page_size_points()
+            if page_size is not None:
+                self._update_page_size_status(*page_size)
+            self._on_page_changed(self._current_page_index, self._page_count)
+            self._update_zoom_status(abs(self._view.transform().m11()) * 100.0)
+            self._updated_label.setText(
+                tr("更新时间：{timestamp}", timestamp=self._last_updated_timestamp)
+                if self._last_updated_timestamp
+                else tr("更新时间：—")
+            )
+            self.setWindowTitle(f"{APP_NAME} — {self._current_file.name}")
+
     def _show_settings(self) -> None:
         dialog = SettingsDialog(self._config, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -802,13 +948,14 @@ class MainWindow(QMainWindow):
             executable = Path(updated.ghostscript_path).expanduser()
             if not executable.is_file():
                 self.show_nonfatal_error(
-                    "Ghostscript 路径无效",
-                    f"找不到指定的 Ghostscript 程序：\n{executable}",
+                    tr("Ghostscript 路径无效"),
+                    tr("找不到指定的 Ghostscript 程序：\n{path}", path=executable),
                 )
                 return
 
         ghostscript_changed = updated.ghostscript_path != previous.ghostscript_path
         refresh_just_enabled = updated.auto_refresh and not previous.auto_refresh
+        language_changed = updated.language != previous.language
         self._config = updated
         self._renderer.set_ghostscript_path(updated.ghostscript_path)
         self._monitor.set_refresh_interval(updated.refresh_interval)
@@ -817,11 +964,16 @@ class MainWindow(QMainWindow):
             updated.background_mode,
             updated.background_color,
         )
+        self._view.set_wheel_action(updated.wheel_action)
         self._auto_refresh_action.blockSignals(True)
         self._auto_refresh_action.setChecked(updated.auto_refresh)
         self._auto_refresh_action.blockSignals(False)
-        if self._save_config():
-            self.statusBar().showMessage("设置已保存", 2500)
+        saved = self._save_config()
+        if language_changed:
+            set_language(updated.language)
+            self._retranslate_ui()
+        if saved:
+            self.statusBar().showMessage(tr("设置已保存"), 2500)
 
         if (ghostscript_changed or refresh_just_enabled) and self._current_file is not None:
             self._generation += 1
@@ -835,7 +987,7 @@ class MainWindow(QMainWindow):
         self._monitor.set_enabled(enabled)
         if self._save_config():
             self.statusBar().showMessage(
-                "自动刷新已开启" if enabled else "自动刷新已关闭", 2500
+                tr("自动刷新已开启") if enabled else tr("自动刷新已关闭"), 2500
             )
         if enabled and not was_enabled and self._current_file is not None:
             self._generation += 1
@@ -847,38 +999,77 @@ class MainWindow(QMainWindow):
         try:
             self._config_manager.save(self._config)
         except OSError as error:
-            self.statusBar().showMessage(f"无法保存 config.json：{error}", 6000)
+            self.statusBar().showMessage(
+                tr("无法保存 config.json：{error}", error=error), 6000
+            )
             return False
         return True
 
     @pyqtSlot(float)
     def _update_zoom_status(self, percent: float) -> None:
-        self._zoom_label.setText(f"缩放：{percent:.0f}%")
+        self._zoom_label.setText(tr("缩放：{percent:.0f}%", percent=percent))
 
     @pyqtSlot(float, float)
     def _update_page_size_status(self, width: float, height: float) -> None:
-        self._page_size_label.setText(f"页面：{width:.1f} × {height:.1f} pt")
+        self._page_size_label.setText(
+            tr("页面：{width:.1f} × {height:.1f} pt", width=width, height=height)
+        )
+
+    @pyqtSlot(int, int)
+    def _on_page_changed(self, page_index: int, page_count: int) -> None:
+        self._current_page_index = max(0, page_index)
+        self._page_count = max(0, page_count)
+        if self._page_count <= 0:
+            self._page_number_label.setText(tr("页码：—"))
+            self._previous_page_action.setEnabled(False)
+            self._next_page_action.setEnabled(False)
+            return
+        self._page_number_label.setText(
+            tr(
+                "页码：{current}/{total}",
+                current=self._current_page_index + 1,
+                total=self._page_count,
+            )
+        )
+        self._previous_page_action.setEnabled(self._current_page_index > 0)
+        self._next_page_action.setEnabled(
+            self._current_page_index < self._page_count - 1
+        )
 
     @pyqtSlot(str)
     def _on_vector_render_error(self, message: str) -> None:
         self.statusBar().showMessage(message, 6000)
 
     def _show_about(self) -> None:
-        QMessageBox.about(
-            self,
-            f"关于 {APP_NAME}",
-            "<b>EPS Live Viewer</b><br><br>"
-            "用于科研绘图过程中快速查看并实时刷新 EPS/PS 文件。<br><br>"
-            "<b>使用要点</b><br>"
-            "• 打开或拖入 EPS/PS 文件；文件重新生成后会自动刷新。<br>"
-            "• 按左右方向键，可按文件名切换同一文件夹中的上一个或下一个 EPS/PS。<br>"
-            "• 使用鼠标滚轮缩放、拖动平移；双击恢复 100%，Ctrl+0 适应窗口。<br>"
-            "• 可将文件夹中的 EPS/PS/PNG/JPG 制作成 MP4/GIF，并在首帧预览中框选输出区域。<br>"
-            "• 可在“设置”中调整自动刷新、背景与默认 PNG DPI。<br><br>"
-            "<b>作者</b><br>"
-            "Zhentong Li<br>"
-            "eternitylzt@gmail.com",
+        dialog = QDialog(self)
+        dialog.setWindowTitle(tr("关于 {app}", app=APP_NAME))
+        dialog.setMinimumSize(560, 430)
+        root = QVBoxLayout(dialog)
+        content = QTextBrowser(dialog)
+        content.setOpenExternalLinks(True)
+        content.setHtml(
+            f"<h2>{APP_NAME}</h2>"
+            f"<p><b>{tr('版本 {version}', version=APP_VERSION)}</b></p>"
+            f"<p>{tr('用于科研绘图过程中快速查看并实时刷新 EPS/PS 文件。')}</p>"
+            f"<h3>{tr('使用要点')}</h3>"
+            f"<ul><li>{tr('打开或拖入 EPS/PS 文件；文件重新生成后会自动刷新。')}</li>"
+            f"<li>{tr('左右方向键切换相邻文件，上下方向键切换多页文档。')}</li>"
+            f"<li>{tr('滚轮行为可在设置中选择；Ctrl+滚轮始终可缩放。')}</li>"
+            f"<li>{tr('工具栏可直接缩放、适应窗口、翻页、切换文件和保存 PNG。')}</li>"
+            f"<li>{tr('可将 EPS/PS/PNG/JPG 序列制作成 MP4/GIF。')}</li></ul>"
+            f"<h3>{tr('作者')}</h3>"
+            "<p>Zhentong Li<br>eternitylzt@gmail.com</p>"
+            f"<p><b>{tr('项目主页')}：</b> "
+            f"<a href=\"{PROJECT_URL}\">{PROJECT_URL}</a></p>"
         )
+        root.addWidget(content)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
+        close_button = buttons.button(QDialogButtonBox.StandardButton.Close)
+        if close_button is not None:
+            close_button.setText(tr("关闭"))
+        buttons.rejected.connect(dialog.reject)
+        root.addWidget(buttons)
+        dialog.exec()
 
     def show_nonfatal_error(self, title: str, message: str) -> None:
         QMessageBox.warning(self, title, message)
@@ -931,7 +1122,9 @@ class MainWindow(QMainWindow):
                 if self._current_file is not None:
                     self._monitor.set_file(self._current_file)
                     self._monitor.set_enabled(self._config.auto_refresh)
-                self.statusBar().showMessage("后台任务尚未结束，请稍后再次关闭。", 5000)
+                self.statusBar().showMessage(
+                    tr("后台任务尚未结束，请稍后再次关闭。"), 5000
+                )
                 return
 
         self._view.clear_document()

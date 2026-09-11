@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from config import find_ghostscript
+from i18n import tr
 
 
 MIN_DPI = 72
@@ -93,7 +94,7 @@ class RenderCache:
         """Reserve a unique cache path (the caller creates its contents)."""
         normalised_suffix = suffix if suffix.startswith(".") else f".{suffix}"
         if normalised_suffix.lower() not in {".png", ".pdf", ".eps"}:
-            raise ValueError("缓存文件类型必须是 PNG、PDF 或 EPS。")
+            raise ValueError(tr("缓存文件类型必须是 PNG、PDF 或 EPS。"))
         with self._lock:
             self._sequence += 1
             return self.directory / f"render_{self._sequence:06d}{normalised_suffix.lower()}"
@@ -145,10 +146,20 @@ class EpsRenderer:
     @staticmethod
     def _validated_dpi(dpi: int) -> int:
         if isinstance(dpi, bool) or not isinstance(dpi, int):
-            raise ValueError("DPI 必须是整数。")
+            raise ValueError(tr("DPI 必须是整数。"))
         if not MIN_DPI <= dpi <= MAX_DPI:
-            raise ValueError(f"DPI 必须在 {MIN_DPI} 到 {MAX_DPI} 之间。")
+            raise ValueError(
+                tr("DPI 必须在 {minimum} 到 {maximum} 之间。", minimum=MIN_DPI, maximum=MAX_DPI)
+            )
         return dpi
+
+    @staticmethod
+    def _validated_page_number(page_number: int) -> int:
+        if isinstance(page_number, bool) or not isinstance(page_number, int):
+            raise ValueError(tr("页码必须是整数。"))
+        if page_number < 1:
+            raise ValueError(tr("页码不能小于 1。"))
+        return page_number
 
     @property
     def dpi(self) -> int:
@@ -180,7 +191,7 @@ class EpsRenderer:
     @staticmethod
     def _raise_if_cancelled(cancel_event: _CancellationEvent | None) -> None:
         if cancel_event and cancel_event.is_set():
-            raise EpsRenderCancelledError("渲染已取消")
+            raise EpsRenderCancelledError(tr("渲染已取消"))
 
     def _snapshot_source(
         self,
@@ -204,7 +215,7 @@ class EpsRenderer:
             try:
                 before = source.stat()
                 if before.st_size <= 0:
-                    raise OSError("EPS/PS 文件为空")
+                    raise OSError(tr("EPS/PS 文件为空"))
                 with source.open("rb") as source_file, snapshot.open("wb") as output_file:
                     shutil.copyfileobj(source_file, output_file, length=1024 * 1024)
                     output_file.flush()
@@ -214,17 +225,17 @@ class EpsRenderer:
                 after_signature = (after.st_mtime_ns, after.st_size)
                 if before_signature == after_signature and copied_size == after.st_size:
                     return snapshot
-                last_error = OSError("EPS/PS 文件仍在写入")
+                last_error = OSError(tr("EPS/PS 文件仍在写入"))
             except OSError as error:
                 last_error = error
             self.cache.release(snapshot)
             if isinstance(cancel_event, threading.Event):
                 if cancel_event.wait(retry_seconds):
-                    raise EpsRenderCancelledError("渲染已取消")
+                    raise EpsRenderCancelledError(tr("渲染已取消"))
             else:
                 time.sleep(retry_seconds)
-        detail = str(last_error) if last_error else "文件不可读"
-        raise EpsFileBusyError(f"EPS/PS 文件暂时不可读：{detail}")
+        detail = str(last_error) if last_error else tr("文件不可读")
+        raise EpsFileBusyError(tr("EPS/PS 文件暂时不可读：{detail}", detail=detail))
 
     @staticmethod
     def _tail(text: str, maximum: int = 1_500) -> str:
@@ -295,7 +306,7 @@ class EpsRenderer:
             while True:
                 if cancel_event and cancel_event.is_set():
                     self._stop_process(process)
-                    raise EpsRenderCancelledError("渲染已取消")
+                    raise EpsRenderCancelledError(tr("渲染已取消"))
                 try:
                     stdout, stderr = process.communicate(timeout=0.1)
                     break
@@ -306,7 +317,7 @@ class EpsRenderer:
         except OSError as error:
             if process is not None and process.poll() is None:
                 self._stop_process(process)
-            raise EpsRenderError(f"无法启动 Ghostscript：{error}") from error
+            raise EpsRenderError(tr("无法启动 Ghostscript：{error}", error=error)) from error
         return process.returncode, stdout, stderr
 
     @staticmethod
@@ -324,9 +335,7 @@ class EpsRenderer:
             ):
                 page_sizes.append((width, height))
         if not page_sizes:
-            raise PngExportError(
-                "Ghostscript 无法确定 EPS 页面尺寸，已取消 PNG 导出。"
-            )
+            raise PngExportError(tr("Ghostscript 无法确定 EPS 页面尺寸，已取消 PNG 导出。"))
         return page_sizes
 
     def _guard_png_dimensions(
@@ -336,6 +345,7 @@ class EpsRenderer:
         dpi: int,
         cancel_event: _CancellationEvent | None,
         crop_to_eps_bounds: bool,
+        page_number: int = 1,
     ) -> None:
         """Reject oversized pages before starting the pngalpha device.
 
@@ -355,8 +365,8 @@ class EpsRenderer:
             "-dSAFER",
             "-dBATCH",
             "-dNOPAUSE",
-            "-dFirstPage=1",
-            "-dLastPage=1",
+            f"-dFirstPage={page_number}",
+            f"-dLastPage={page_number}",
             *(["-dEPSCrop"] if crop_to_eps_bounds else []),
             "-sDEVICE=nullpage",
             "-c",
@@ -369,7 +379,9 @@ class EpsRenderer:
         if returncode != 0:
             detail = self._tail(stderr or stdout)
             suffix = f"\nGhostscript: {detail}" if detail else ""
-            raise PngExportError(f"Ghostscript 无法检测 EPS 页面尺寸。{suffix}")
+            raise PngExportError(
+                tr("Ghostscript 无法检测 EPS 页面尺寸。{suffix}", suffix=suffix)
+            )
 
         for page_width, page_height in self._parse_page_sizes_points(combined_output):
             # Add two pixels for device rounding/antialiasing at cropped edges.
@@ -381,8 +393,11 @@ class EpsRenderer:
                 or pixel_width * pixel_height > MAX_EXPORT_PIXELS
             ):
                 raise PngExportError(
-                    f"PNG 预计尺寸为 {pixel_width} × {pixel_height} 像素，"
-                    "可能耗尽内存；请降低导出 DPI。"
+                    tr(
+                        "PNG 预计尺寸为 {width} × {height} 像素，可能耗尽内存；请降低导出 DPI。",
+                        width=pixel_width,
+                        height=pixel_height,
+                    )
                 )
 
     def render(
@@ -392,6 +407,7 @@ class EpsRenderer:
         cancel_event: _CancellationEvent | None = None,
         crop_to_eps_bounds: bool | None = None,
         guard_dimensions: bool = False,
+        page_number: int = 1,
     ) -> RenderResult:
         """Render one EPS or PS file into a new transparent PNG cache file.
 
@@ -402,7 +418,7 @@ class EpsRenderer:
         # cancellation event. Preserve it while preferring explicit per-job DPI.
         if dpi is not None and not isinstance(dpi, int):
             if cancel_event is not None or not isinstance(dpi, _CancellationEvent):
-                raise TypeError("dpi 必须是整数，cancel_event 必须支持 is_set()。")
+                raise TypeError(tr("dpi 必须是整数，cancel_event 必须支持 is_set()。"))
             cancel_event = dpi
             dpi = None
 
@@ -411,15 +427,16 @@ class EpsRenderer:
                 job_dpi = self._default_dpi
         else:
             job_dpi = self._validated_dpi(dpi)
+        job_page = self._validated_page_number(page_number)
 
         source_path = Path(source).resolve()
         if not source_path.is_file():
-            raise FileNotFoundError(f"找不到 EPS/PS 文件：{source_path}")
+            raise FileNotFoundError(tr("找不到 EPS/PS 文件：{path}", path=source_path))
 
         executable = self.ghostscript_path
         if executable is None:
             raise GhostscriptNotFoundError(
-                "未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。"
+                tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。")
             )
 
         if crop_to_eps_bounds is None:
@@ -432,8 +449,8 @@ class EpsRenderer:
             "-dSAFER",
             "-dBATCH",
             "-dNOPAUSE",
-            "-dFirstPage=1",
-            "-dLastPage=1",
+            f"-dFirstPage={job_page}",
+            f"-dLastPage={job_page}",
             *(["-dEPSCrop"] if crop_to_eps_bounds else []),
             "-sDEVICE=pngalpha",
             f"-r{job_dpi}",
@@ -448,12 +465,13 @@ class EpsRenderer:
                     job_dpi,
                     cancel_event,
                     crop_to_eps_bounds,
+                    job_page,
                 )
             self._run_ghostscript(
                 command,
                 png_path,
                 cancel_event,
-                "EPS/PS 文件无法解析或渲染失败。",
+                tr("EPS/PS 文件无法解析或渲染失败。"),
             )
         finally:
             self.cache.release(snapshot)
@@ -473,12 +491,12 @@ class EpsRenderer:
         """
         source_path = Path(source).resolve()
         if not source_path.is_file():
-            raise FileNotFoundError(f"找不到 EPS/PS 文件：{source_path}")
+            raise FileNotFoundError(tr("找不到 EPS/PS 文件：{path}", path=source_path))
 
         executable = self.ghostscript_path
         if executable is None:
             raise GhostscriptNotFoundError(
-                "未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。"
+                tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。")
             )
 
         crop_to_eps_bounds = source_path.suffix.lower() == ".eps"
@@ -490,8 +508,6 @@ class EpsRenderer:
             "-dSAFER",
             "-dBATCH",
             "-dNOPAUSE",
-            "-dFirstPage=1",
-            "-dLastPage=1",
             *(["-dEPSCrop"] if crop_to_eps_bounds else []),
             "-sDEVICE=pdfwrite",
             "-dCompatibilityLevel=1.7",
@@ -503,7 +519,7 @@ class EpsRenderer:
                 command,
                 pdf_path,
                 cancel_event,
-                "EPS/PS 文件无法解析或转换为 PDF。",
+                tr("EPS/PS 文件无法解析或转换为 PDF。"),
             )
         finally:
             self.cache.release(snapshot)
@@ -513,7 +529,7 @@ class EpsRenderer:
     def _normalise_export_path(target: str | Path) -> Path:
         path = Path(target).expanduser()
         if path.name in ("", ".", ".."):
-            raise PngExportError("PNG 输出文件名无效。")
+            raise PngExportError(tr("PNG 输出文件名无效。"))
         if path.suffix.lower() != ".png":
             path = path.with_suffix(".png")
         return path.resolve()
@@ -522,11 +538,11 @@ class EpsRenderer:
     def _validate_background(mode: str, color: str) -> tuple[str, str]:
         normalised_mode = mode.strip().lower()
         if normalised_mode not in {"transparent", "white", "custom"}:
-            raise ValueError("背景模式必须是 transparent、white 或 custom。")
+            raise ValueError(tr("背景模式必须是 transparent、white 或 custom。"))
         if normalised_mode == "white":
             return normalised_mode, "#FFFFFF"
         if normalised_mode == "custom" and not _HEX_COLOR.fullmatch(color.strip()):
-            raise ValueError("自定义背景颜色必须使用 #RRGGBB 格式。")
+            raise ValueError(tr("自定义背景颜色必须使用 #RRGGBB 格式。"))
         return normalised_mode, color.strip().upper()
 
     def export_png(
@@ -537,6 +553,7 @@ class EpsRenderer:
         background: str = "transparent",
         background_color: str = "#FFFFFF",
         cancel_event: _CancellationEvent | None = None,
+        page_number: int = 1,
     ) -> Path:
         """Render and atomically export an EPS or PS file as PNG.
 
@@ -545,20 +562,21 @@ class EpsRenderer:
         The destination is replaced only after a complete PNG has been written.
         """
         job_dpi = self._validated_dpi(dpi)
+        job_page = self._validated_page_number(page_number)
         mode, color = self._validate_background(background, background_color)
         destination = self._normalise_export_path(target)
 
         try:
             destination.parent.mkdir(parents=True, exist_ok=True)
         except OSError as error:
-            raise PngExportError(f"无法创建输出目录：{error}") from error
+            raise PngExportError(tr("无法创建输出目录：{error}", error=error)) from error
         if not destination.parent.is_dir():
-            raise PngExportError("PNG 输出目录无效。")
+            raise PngExportError(tr("PNG 输出目录无效。"))
 
         executable = self.ghostscript_path
         if executable is None:
             raise GhostscriptNotFoundError(
-                "未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。"
+                tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。")
             )
 
         export_snapshot: Path | None = None
@@ -570,7 +588,9 @@ class EpsRenderer:
             # check and rasterization from bypassing the pixel budget.
             source_path = Path(source).resolve()
             if not source_path.is_file():
-                raise FileNotFoundError(f"找不到 EPS/PS 文件：{source_path}")
+                raise FileNotFoundError(
+                    tr("找不到 EPS/PS 文件：{path}", path=source_path)
+                )
             export_snapshot = self._snapshot_source(source_path, cancel_event)
             crop_to_eps_bounds = source_path.suffix.lower() == ".eps"
             self._guard_png_dimensions(
@@ -579,12 +599,14 @@ class EpsRenderer:
                 job_dpi,
                 cancel_event,
                 crop_to_eps_bounds,
+                job_page,
             )
             render_result = self.render(
                 export_snapshot,
                 dpi=job_dpi,
                 cancel_event=cancel_event,
                 crop_to_eps_bounds=crop_to_eps_bounds,
+                page_number=job_page,
             )
             self._raise_if_cancelled(cancel_event)
 
@@ -601,11 +623,11 @@ class EpsRenderer:
                 or image_size.width() * image_size.height() > MAX_EXPORT_PIXELS
             ):
                 raise PngExportError(
-                    "PNG 像素尺寸过大，可能耗尽内存；请降低导出 DPI。"
+                    tr("PNG 像素尺寸过大，可能耗尽内存；请降低导出 DPI。")
                 )
             source_image = reader.read()
             if source_image.isNull():
-                raise PngExportError("Ghostscript 输出的 PNG 无法读取。")
+                raise PngExportError(tr("Ghostscript 输出的 PNG 无法读取。"))
 
             image_to_save = source_image
             if mode != "transparent":
@@ -634,17 +656,19 @@ class EpsRenderer:
                 ) as temporary:
                     temporary_path = Path(temporary.name)
             except OSError as error:
-                raise PngExportError(f"无法创建临时输出文件：{error}") from error
+                raise PngExportError(
+                    tr("无法创建临时输出文件：{error}", error=error)
+                ) from error
 
             if not image_to_save.save(str(temporary_path), "PNG"):
-                raise PngExportError("PNG 编码或写入失败。")
+                raise PngExportError(tr("PNG 编码或写入失败。"))
             if temporary_path.stat().st_size == 0:
-                raise PngExportError("PNG 写入失败：输出文件为空。")
+                raise PngExportError(tr("PNG 写入失败：输出文件为空。"))
             self._raise_if_cancelled(cancel_event)
             try:
                 os.replace(temporary_path, destination)
             except OSError as error:
-                raise PngExportError(f"无法保存 PNG 文件：{error}") from error
+                raise PngExportError(tr("无法保存 PNG 文件：{error}", error=error)) from error
             temporary_path = None
             return destination
         finally:

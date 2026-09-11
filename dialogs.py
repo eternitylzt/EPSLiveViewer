@@ -34,6 +34,7 @@ from config import (
     MIN_REFRESH_INTERVAL,
     AppConfig,
 )
+from i18n import tr
 
 
 @dataclass(frozen=True)
@@ -62,7 +63,7 @@ class SettingsDialog(QDialog):
         self._initial = AppConfig.from_mapping(config.__dict__)
         self._custom_color = QColor(self._initial.background_color)
 
-        self.setWindowTitle("设置")
+        self.setWindowTitle(tr("设置"))
         self.setModal(True)
         self.setMinimumWidth(540)
         self._build_ui()
@@ -71,19 +72,19 @@ class SettingsDialog(QDialog):
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
 
-        runtime_group = QGroupBox("渲染与自动刷新")
+        runtime_group = QGroupBox(tr("渲染与自动刷新"))
         runtime_form = QFormLayout(runtime_group)
 
         self._ghostscript_edit = QLineEdit()
-        self._ghostscript_edit.setPlaceholderText("留空则自动查找 Ghostscript")
+        self._ghostscript_edit.setPlaceholderText(tr("留空则自动查找 Ghostscript"))
         self._ghostscript_edit.setClearButtonEnabled(True)
-        browse_gs_button = QPushButton("浏览…")
+        browse_gs_button = QPushButton(tr("浏览…"))
         browse_gs_button.clicked.connect(self._browse_ghostscript)
         runtime_form.addRow(
             "Ghostscript：", _joined_row(self._ghostscript_edit, browse_gs_button)
         )
 
-        self._auto_refresh_check = QCheckBox("EPS/PS 文件变化后自动刷新")
+        self._auto_refresh_check = QCheckBox(tr("EPS/PS 文件变化后自动刷新"))
         self._auto_refresh_check.toggled.connect(self._sync_enabled_states)
         runtime_form.addRow("", self._auto_refresh_check)
 
@@ -91,31 +92,50 @@ class SettingsDialog(QDialog):
         self._refresh_interval_spin.setRange(MIN_REFRESH_INTERVAL, MAX_REFRESH_INTERVAL)
         self._refresh_interval_spin.setSingleStep(100)
         self._refresh_interval_spin.setSuffix(" ms")
-        runtime_form.addRow("检测间隔：", self._refresh_interval_spin)
+        runtime_form.addRow(tr("检测间隔："), self._refresh_interval_spin)
         root.addWidget(runtime_group)
 
-        display_group = QGroupBox("预览背景")
+        display_group = QGroupBox(tr("预览与交互"))
         display_form = QFormLayout(display_group)
         self._background_combo = QComboBox()
-        self._background_combo.addItem("透明（棋盘格）", "transparent")
-        self._background_combo.addItem("白色", "white")
-        self._background_combo.addItem("自定义颜色", "custom")
+        self._background_combo.addItem(tr("透明（棋盘格）"), "transparent")
+        self._background_combo.addItem(tr("白色"), "white")
+        self._background_combo.addItem(tr("自定义颜色"), "custom")
         self._background_combo.currentIndexChanged.connect(self._sync_enabled_states)
-        display_form.addRow("背景：", self._background_combo)
+        display_form.addRow(tr("背景："), self._background_combo)
 
         self._color_button = QPushButton()
         self._color_button.clicked.connect(self._choose_background_color)
-        display_form.addRow("自定义颜色：", self._color_button)
+        display_form.addRow(tr("自定义颜色："), self._color_button)
+
+        self._wheel_action_combo = QComboBox()
+        self._wheel_action_combo.addItem(tr("放大或缩小（默认）"), "zoom")
+        self._wheel_action_combo.addItem(
+            tr("相邻文件查看（Ctrl+滚轮缩放）"), "files"
+        )
+        self._wheel_action_combo.addItem(
+            tr("仅翻页（Ctrl+滚轮缩放）"), "pages"
+        )
+        display_form.addRow(tr("鼠标滚轮："), self._wheel_action_combo)
+
+        self._language_combo = QComboBox()
+        self._language_combo.addItem("简体中文", "zh_CN")
+        self._language_combo.addItem("English", "en")
+        display_form.addRow(tr("界面语言："), self._language_combo)
+        language_note = QLabel(tr("语言切换保存后立即生效，无需重启。"))
+        language_note.setWordWrap(True)
+        language_note.setStyleSheet("color: palette(mid);")
+        display_form.addRow("", language_note)
         root.addWidget(display_group)
 
-        export_group = QGroupBox("PNG 导出")
+        export_group = QGroupBox(tr("PNG 导出"))
         export_form = QFormLayout(export_group)
         self._export_dpi_spin = QSpinBox()
         self._export_dpi_spin.setRange(MIN_EXPORT_DPI, MAX_EXPORT_DPI)
         self._export_dpi_spin.setSingleStep(50)
         self._export_dpi_spin.setSuffix(" DPI")
-        export_form.addRow("默认分辨率：", self._export_dpi_spin)
-        export_note = QLabel("预览清晰度会随缩放自动调整，此 DPI 只用于保存 PNG。")
+        export_form.addRow(tr("默认分辨率："), self._export_dpi_spin)
+        export_note = QLabel(tr("预览清晰度会随缩放自动调整，此 DPI 只用于保存 PNG。"))
         export_note.setWordWrap(True)
         export_note.setStyleSheet("color: palette(mid);")
         export_form.addRow("", export_note)
@@ -124,6 +144,8 @@ class SettingsDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("确定"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("取消"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -134,6 +156,10 @@ class SettingsDialog(QDialog):
         self._refresh_interval_spin.setValue(self._initial.refresh_interval)
         index = self._background_combo.findData(self._initial.background_mode)
         self._background_combo.setCurrentIndex(max(0, index))
+        wheel_index = self._wheel_action_combo.findData(self._initial.wheel_action)
+        self._wheel_action_combo.setCurrentIndex(max(0, wheel_index))
+        language_index = self._language_combo.findData(self._initial.language)
+        self._language_combo.setCurrentIndex(max(0, language_index))
         self._export_dpi_spin.setValue(self._initial.export_dpi)
         self._update_color_button()
         self._sync_enabled_states()
@@ -143,13 +169,13 @@ class SettingsDialog(QDialog):
         start = str(current.parent if current.is_file() else Path.home())
         executable_filter = (
             "Ghostscript (gswin64c.exe gswin32c.exe gs.exe);;"
-            "可执行文件 (*.exe);;所有文件 (*.*)"
+            + tr("可执行文件 (*.exe);;所有文件 (*.*)")
             if sys.platform == "win32"
-            else "Ghostscript (gs);;所有文件 (*)"
+            else f"Ghostscript (gs);;{tr('所有文件 (*)')}"
         )
         filename, _ = QFileDialog.getOpenFileName(
             self,
-            "选择 Ghostscript 控制台程序",
+            tr("选择 Ghostscript 控制台程序"),
             start,
             executable_filter,
         )
@@ -160,7 +186,7 @@ class SettingsDialog(QDialog):
         selected = QColorDialog.getColor(
             self._custom_color,
             self,
-            "选择预览背景颜色",
+            tr("选择预览背景颜色"),
             QColorDialog.ColorDialogOption.DontUseNativeDialog,
         )
         if selected.isValid():
@@ -199,6 +225,8 @@ class SettingsDialog(QDialog):
                     QColor.NameFormat.HexRgb
                 ).upper(),
                 "export_dpi": self._export_dpi_spin.value(),
+                "wheel_action": str(self._wheel_action_combo.currentData()),
+                "language": str(self._language_combo.currentData()),
             }
         )
 
@@ -219,7 +247,7 @@ class PngExportDialog(QDialog):
         super().__init__(parent)
         self._options: PngExportOptions | None = None
 
-        self.setWindowTitle("保存为 PNG")
+        self.setWindowTitle(tr("保存为 PNG"))
         self.setModal(True)
         self.setMinimumWidth(520)
 
@@ -227,9 +255,9 @@ class PngExportDialog(QDialog):
         form = QFormLayout()
         self._path_edit = QLineEdit(str(initial_path))
         self._path_edit.setClearButtonEnabled(True)
-        browse_button = QPushButton("浏览…")
+        browse_button = QPushButton(tr("浏览…"))
         browse_button.clicked.connect(self._browse_output)
-        form.addRow("文件：", _joined_row(self._path_edit, browse_button))
+        form.addRow(tr("文件："), _joined_row(self._path_edit, browse_button))
 
         self._dpi_spin = QSpinBox()
         self._dpi_spin.setRange(MIN_EXPORT_DPI, MAX_EXPORT_DPI)
@@ -238,10 +266,10 @@ class PngExportDialog(QDialog):
         self._dpi_spin.setValue(
             max(MIN_EXPORT_DPI, min(int(initial_dpi), MAX_EXPORT_DPI))
         )
-        form.addRow("分辨率：", self._dpi_spin)
+        form.addRow(tr("分辨率："), self._dpi_spin)
         root.addLayout(form)
 
-        note = QLabel("PNG 是位图格式；DPI 越高，导出细节越丰富，文件也越大。")
+        note = QLabel(tr("PNG 是位图格式；DPI 越高，导出细节越丰富，文件也越大。"))
         note.setWordWrap(True)
         note.setStyleSheet("color: palette(mid);")
         root.addWidget(note)
@@ -249,6 +277,8 @@ class PngExportDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText(tr("保存"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("取消"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -258,9 +288,9 @@ class PngExportDialog(QDialog):
         start = str(current if current.name else Path.home() / "figure.png")
         filename, _ = QFileDialog.getSaveFileName(
             self,
-            "保存 PNG 文件",
+            tr("保存 PNG 文件"),
             start,
-            "PNG 图像 (*.png)",
+            tr("PNG 图像 (*.png)"),
             options=QFileDialog.Option.DontConfirmOverwrite,
         )
         if filename:
@@ -276,18 +306,24 @@ class PngExportDialog(QDialog):
     def accept(self) -> None:  # type: ignore[override]
         raw_path = self._path_edit.text().strip()
         if not raw_path:
-            QMessageBox.warning(self, "无法保存", "请选择 PNG 文件的保存位置。")
+            QMessageBox.warning(self, tr("无法保存"), tr("请选择 PNG 文件的保存位置。"))
             return
         try:
             path = self._normalize_png_path(raw_path)
         except (OSError, ValueError):
-            QMessageBox.warning(self, "无法保存", "PNG 文件路径无效。")
+            QMessageBox.warning(self, tr("无法保存"), tr("PNG 文件路径无效。"))
             return
         if not path.parent.is_dir():
-            QMessageBox.warning(self, "无法保存", f"保存目录不存在：\n{path.parent}")
+            QMessageBox.warning(
+                self,
+                tr("无法保存"),
+                tr("保存目录不存在：\n{path}", path=path.parent),
+            )
             return
         if path.exists() and path.is_dir():
-            QMessageBox.warning(self, "无法保存", "所选路径是文件夹，不能保存为 PNG。")
+            QMessageBox.warning(
+                self, tr("无法保存"), tr("所选路径是文件夹，不能保存为 PNG。")
+            )
             return
 
         self._path_edit.setText(str(path))

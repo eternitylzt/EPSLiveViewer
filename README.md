@@ -10,7 +10,11 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级桌面查看器。�
 - 自动检测当前文件变化并刷新，支持文件被覆盖、短暂占用或延迟写入的常见工作流。
 - 矢量源预览：放大时按当前视野重新绘制路径和文字，而非放大固定 DPI 的截图。
 - 自动识别同一文件夹内按文件名排列的 EPS/PS；按左右方向键即可前后翻看比较。
+- 多页 EPS/PS 使用上下方向键翻页，状态栏显示当前页码；PNG 导出保存当前页。
 - 鼠标滚轮缩放、拖动平移、双击恢复 100%、`Ctrl+0` 适应窗口。
+- 滚轮可设置为缩放、切换相邻文件或仅翻页；后两种模式下 `Ctrl+滚轮` 始终用于缩放。
+- 窗口顶部工具栏提供打开、刷新、切换文件、翻页、缩放、适应窗口和保存 PNG 按钮。
+- 界面支持简体中文与英语，可在设置中即时切换，无需重启。
 - 设置透明棋盘格、白色或自定义预览背景。
 - 仅导出 PNG；每次导出可选择 72–600 DPI，并可保留透明背景或合成到背景色。
 - 将文件夹中的 EPS、PS、PNG、JPG/JPEG 制作成 MP4 或 GIF，可排除文件、调整帧序、分辨率、帧率和背景色，并通过首帧预览框选局部区域。
@@ -30,7 +34,7 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级桌面查看器。�
 
 ### 1. 环境要求
 
-Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveViewer`。macOS 请按处理器下载 Apple Silicon（M 系列）或 Intel 版 `.dmg`，打开镜像后将 `EPSLiveViewer.app` 拖到 `Applications` 文件夹。
+Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveViewer`。macOS 请按处理器下载 Apple Silicon（M 系列）或 Intel 版 `.dmg`，打开镜像后将 `EPSLiveViewer.app` 拖到 `Applications` 文件夹。安装后可将 `.eps`/`.ps` 设为由本工具默认打开，Finder 的“打开方式”会把文件直接交给已经启动或新启动的应用。
 
 发布包不要求安装 Python。预览 EPS/PS 或将其制作成视频时需要系统 Ghostscript：Windows 自动查找 `gswin64c.exe`，Linux/macOS 自动查找 `gs`；未识别时，请在“文件 → 设置”中手动选择。仅使用 PNG/JPG 制作视频不需要 Ghostscript。
 
@@ -49,6 +53,8 @@ Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveV
 打开绘图程序生成的文件后，继续运行绘图代码即可。文件重新写入完成后，EPS Live Viewer 会自动生成新预览，并尽量保持当前缩放与平移位置。
 
 同目录中的 EPS/PS 会按文件名自然排序。按 `←` 打开上一个文件，按 `→` 打开下一个文件；状态栏会保持显示当前文件名和 `[当前位置/总数]`。切换时会重新扫描文件夹，因此新生成的相邻文件也会自动加入序列。
+
+多页 EPS/PS 按 `↑`、`↓` 切换上一页和下一页；单页文件不会响应翻页。滚轮默认缩放，也可在“文件 → 设置”中改为相邻文件或翻页模式。方向键功能不受滚轮设置影响。
 
 ### 4. 导出 PNG
 
@@ -78,7 +84,7 @@ Windows 可直接运行 `EPSLiveViewer.exe`；Linux 为可执行文件 `EPSLiveV
 
 ### macOS 提示无法验证开发者
 
-当前 DMG 未使用 Apple Developer 证书签名或公证。首次启动时，在 Finder 的“应用程序”中按住 Control 点击 EPS Live Viewer，选择“打开”，再确认一次。后续可正常从“应用程序”启动。
+若 Release 标注为未公证版本，首次启动时需在 Finder 的“应用程序”中按住 Control 点击 EPS Live Viewer，选择“打开”，再确认一次。彻底消除此提示需要 Apple Developer ID 证书签名和 Apple 公证；仓库发布流程已支持在配置证书后自动签名、公证和装订凭据，但无法用免费临时签名替代 Apple 的信任链。
 
 ### 文件刚生成时没有立即刷新
 
@@ -98,7 +104,7 @@ PNG 是整页位图，像素数量随 DPI 的平方增长。通常建议使用 3
 
 ### PS 文件有多页
 
-当前预览器和视频序列都采用单页模型，多页 PS 使用第一页；多页切换可作为后续扩展。
+预览器支持多页 EPS/PS，可用上下方向键或工具栏翻页，保存 PNG 时会导出当前页。制作视频时，每个 EPS/PS 文件仍取第一页作为一帧。
 
 ### MP4/GIF 中的图片大小不一致
 
@@ -132,6 +138,8 @@ chmod +x build_unix.sh
 ```
 
 推送 `eps-live-viewer-v*` 标签或手动运行[多平台发布工作流](.github/workflows/eps-live-viewer-release.yml)，会在 Windows、Ubuntu、macOS Apple Silicon 和 macOS Intel 原生 runner 上分别构建发行包、生成 SHA-256 校验文件并创建或更新 GitHub Release。macOS 产物为可拖入“应用程序”的 DMG。PyInstaller 不支持从单一操作系统交叉编译所有平台，因此各平台必须独立构建。
+
+如需正式签名和公证 macOS 包，可在仓库 Secrets 中配置 `MACOS_CERTIFICATE`、`MACOS_CERTIFICATE_PASSWORD`、`MACOS_SIGNING_IDENTITY`、`MACOS_NOTARY_APPLE_ID`、`MACOS_NOTARY_TEAM_ID` 和 `MACOS_NOTARY_PASSWORD`。未配置时工作流回退为可构建但未公证的临时签名版本。
 
 附：本项目主要借助 Codex 生成。
 

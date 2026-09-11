@@ -1,25 +1,25 @@
-# EPS Live Viewer multi-platform release
+# EPS Live Viewer 1.1.0
 
 ## 简体中文
 
-这是 EPS Live Viewer 的首个多平台发布版本。
+- 支持多页 EPS/PS：上下方向键翻页，状态栏显示页码，PNG 导出保存当前页。
+- 鼠标滚轮可设置为缩放、切换相邻文件或仅翻页；`Ctrl+滚轮` 始终可缩放。
+- 新增顶部快捷工具栏。
+- 新增简体中文/英语即时切换。
+- “关于”窗口新增版本号、GitHub 链接，并支持选择、复制文字。
+- 修复 macOS 从 Finder 或默认文件关联启动时只打开应用、不显示 EPS/PS 的问题。
+- macOS 应用清单注册 EPS/PS 文档类型；发布流程支持可选的 Developer ID 签名与 Apple 公证。
 
-- Windows x64：原有稳定单文件 EXE，用法保持不变。
-- Linux x64：初始移植版单文件程序。
-- macOS Apple Silicon / Intel：对应架构的 `.dmg` 安装镜像；打开后将应用拖入 `Applications`。当前未使用 Apple Developer 证书签名或公证。
-- 所有包均支持 EPS/PS 矢量预览、自动刷新、相邻文件浏览、PNG 导出及 MP4/GIF 序列制作。
-- 运行 EPS/PS 功能仍需安装系统 Ghostscript；发布包不要求安装 Python。
-
-请根据平台下载对应压缩包，并可使用 `SHA256SUMS.txt` 校验文件完整性。Linux/macOS 为初始移植版本，如遇平台特有问题请提交 Issue。
+macOS Apple Silicon 和 Intel 分别提供 DMG。当前仓库未配置 Apple Developer 凭据时，产物仍为临时签名、未公证版本，首次启动需在 Finder 中按住 Control 点击应用并选择“打开”。EPS/PS 功能仍需系统 Ghostscript；发布包不要求 Python。
 
 ## English
 
-This is the first multi-platform release of EPS Live Viewer.
+- Added multi-page EPS/PS support: Up/Down changes pages, the status bar shows page position, and PNG export saves the current page.
+- The mouse wheel can zoom, browse neighboring files, or change pages; `Ctrl+wheel` always zooms.
+- Added a top quick-access toolbar.
+- Added immediate Simplified Chinese/English switching.
+- The copyable About dialog now shows the version and GitHub project link.
+- Fixed macOS Finder/default-app launches opening the application without displaying the requested EPS/PS file.
+- Registered EPS/PS document types in the macOS bundle and added optional Developer ID signing and Apple notarization to the release workflow.
 
-- Windows x64: the established single-file EXE with unchanged usage.
-- Linux x64: an initial portable single-file build.
-- macOS Apple Silicon / Intel: architecture-specific `.dmg` installers; open the image and drag the app into `Applications`. They are not signed with an Apple Developer certificate or notarized.
-- Every package supports EPS/PS vector preview, automatic refresh, neighboring-file navigation, PNG export, and MP4/GIF sequence creation.
-- EPS/PS features still require system Ghostscript; Python is not required for release packages.
-
-Download the archive matching your platform and use `SHA256SUMS.txt` to verify it. Linux and macOS are initial ports; please report platform-specific issues through GitHub Issues.
+Separate DMGs are provided for Apple Silicon and Intel. Without Apple Developer credentials configured in this repository, builds remain ad-hoc signed and unnotarized; Control-click the app in Finder and choose **Open** for the first launch. EPS/PS features still require system Ghostscript; Python is not required.
