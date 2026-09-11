@@ -1,4 +1,4 @@
-"""Ghostscript-backed EPS rendering and atomic PNG export.
+"""Ghostscript-backed EPS rendering and atomic PNG/PDF export.
 
 Ghostscript is the only EPS/PostScript parser used here. Every render job owns
 its subprocess and output path, so preview and export workers can safely use one
@@ -61,6 +61,10 @@ class EpsRenderCancelledError(EpsRenderError):
 
 class PngExportError(RuntimeError):
     """Raised when a rendered image cannot be written as the requested PNG."""
+
+
+class PdfExportError(RuntimeError):
+    """Raised when a converted PDF cannot be written to its destination."""
 
 
 @dataclass(frozen=True)
@@ -524,6 +528,75 @@ class EpsRenderer:
         finally:
             self.cache.release(snapshot)
         return PdfRenderResult(source_path, pdf_path, time.time())
+
+    @staticmethod
+    def _normalise_pdf_export_path(target: str | Path) -> Path:
+        path = Path(target).expanduser()
+        if path.name in ("", ".", ".."):
+            raise PdfExportError(tr("PDF 输出文件名无效。"))
+        if path.suffix.lower() != ".pdf":
+            path = path.with_suffix(".pdf")
+        return path.resolve()
+
+    def export_pdf(
+        self,
+        source: str | Path,
+        target: str | Path,
+        cancel_event: _CancellationEvent | None = None,
+    ) -> Path:
+        """Convert every source page with ``pdfwrite`` and save atomically.
+
+        :meth:`convert_to_pdf` remains the single Ghostscript conversion path
+        used by both preview and export. Copying its completed vector PDF into
+        a same-directory temporary file ensures a failed job never truncates an
+        existing destination.
+        """
+        destination = self._normalise_pdf_export_path(target)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise PdfExportError(tr("无法创建输出目录：{error}", error=error)) from error
+        if not destination.parent.is_dir():
+            raise PdfExportError(tr("PDF 输出目录无效。"))
+
+        converted: PdfRenderResult | None = None
+        temporary_path: Path | None = None
+        try:
+            converted = self.convert_to_pdf(source, cancel_event=cancel_event)
+            self._raise_if_cancelled(cancel_event)
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb",
+                    prefix=f".{destination.stem}_",
+                    suffix=".pdf",
+                    dir=destination.parent,
+                    delete=False,
+                ) as temporary:
+                    temporary_path = Path(temporary.name)
+                shutil.copyfile(converted.pdf_path, temporary_path)
+            except OSError as error:
+                raise PdfExportError(
+                    tr("无法创建临时 PDF 文件：{error}", error=error)
+                ) from error
+            if temporary_path.stat().st_size == 0:
+                raise PdfExportError(tr("PDF 输出文件为空。"))
+            self._raise_if_cancelled(cancel_event)
+            try:
+                os.replace(temporary_path, destination)
+            except OSError as error:
+                raise PdfExportError(
+                    tr("无法保存 PDF 文件：{error}", error=error)
+                ) from error
+            temporary_path = None
+            return destination
+        finally:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            if converted is not None:
+                self.cache.release(converted.pdf_path)
 
     @staticmethod
     def _normalise_export_path(target: str | Path) -> Path:

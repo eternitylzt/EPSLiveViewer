@@ -1,25 +1,23 @@
-# EPS Live Viewer 1.1.1
+# EPS Live Viewer 1.2.0
 
 ## 简体中文
 
-- 优化 Windows 单文件打包，实测 EXE 从 68.16 MB 降至 51.92 MB，减少约 23.8%。
-- 移除程序未使用的 Qt 软件 OpenGL 回退库；当前界面和矢量预览继续使用 Qt Widgets 的二维绘制。
-- 完整保留内置 FFmpeg，通过无损压缩降低发行体积；首次制作视频时解压到临时目录，本次运行期间复用，退出后自动清理。
-- 合并视频窗口与视频导出中重复的 PNG/JPG 读取逻辑。
-- 保留已有全部功能和离线能力，不要求单独安装 FFmpeg。
+- 新增“文件 → 另存为 PDF”。
+- 通过项目现有 Ghostscript `pdfwrite` 转换当前 EPS/PS，保留矢量质量和完整页数。
+- 多页 EPS/PS 会导出为多页 PDF；导出不受当前预览页码、缩放和背景设置影响。
+- PDF 转换在后台执行，并沿用 Ghostscript 自动检测、文件写入稳定等待和取消机制。
+- 使用临时文件完成原子保存；转换失败不会破坏已有目标文件，并会显示明确错误信息。
+- 中英文界面、帮助内容与 README 已同步更新。
 
-已用三页 `20241001.eps` 完成源码及冻结程序回归检查，覆盖多页、缩放、三种滚轮操作、背景、相邻 EPS/PS、拖拽、自动刷新、当前页 PNG 导出、JPG 输入、MP4/GIF、比例裁剪、取消生成和中英文界面。
-
-本次体积优化针对 Windows。Linux 和 macOS 继续使用原有打包方式，功能和安装方法不变。EPS/PS 预览仍需系统 Ghostscript；发布包不要求 Python。
+本功能未引入新的 PDF 第三方依赖，不改变预览、自动刷新、PNG、MP4/GIF 及其他已有功能。Windows、Linux、macOS Apple Silicon 和 macOS Intel 继续使用现有跨平台发布流程。EPS/PS 与 PDF 转换仍需系统 Ghostscript；发布包不要求 Python。
 
 ## English
 
-- Optimized the Windows one-file package: the measured EXE decreased from 68.16 MB to 51.92 MB, a reduction of about 23.8%.
-- Removed Qt's unused software OpenGL fallback library; the interface and vector preview continue to use Qt Widgets' 2D painting path.
-- Kept the complete bundled FFmpeg executable and compressed it losslessly. It is extracted to a temporary directory on first video export, reused for the current session, and cleaned up on exit.
-- Consolidated duplicate PNG/JPG loading code shared by the video dialog and exporter.
-- Preserved all existing features and offline operation; no separate FFmpeg installation is required.
+- Added **File → Save as PDF**.
+- Converts the current EPS/PS through the existing Ghostscript `pdfwrite` path, preserving vector quality and the complete page set.
+- Multi-page EPS/PS files produce multi-page PDFs. Export is independent of the displayed page, zoom, and preview background.
+- PDF conversion runs in the background and reuses Ghostscript discovery, stable-file waiting, and cancellation handling.
+- Atomic output prevents a failed conversion from damaging an existing destination and clear errors are shown on failure.
+- Updated both interface languages, Help content, and the bilingual README.
 
-Source and frozen-package regression checks used the supplied three-page `20241001.eps` and covered multipage navigation, zoom, all wheel modes, backgrounds, neighboring EPS/PS files, drag and drop, live refresh, current-page PNG export, JPEG input, MP4/GIF, proportional cropping, cancellation, and both interface languages.
-
-This size optimization targets Windows. Linux and macOS retain their established packaging, features, and installation method. EPS/PS preview still requires system Ghostscript; Python is not required.
+No new PDF dependency was added, and preview, live refresh, PNG, MP4/GIF, and all existing features remain unchanged. The existing release workflow continues to build Windows, Linux, macOS Apple Silicon, and macOS Intel packages. EPS/PS and PDF conversion still require system Ghostscript; Python is not required.

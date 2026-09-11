@@ -150,6 +150,47 @@ class ExportWorker(QObject):
             self.succeeded.emit(output)
 
 
+@dataclass(frozen=True)
+class PdfExportRequest:
+    source: Path
+    target: Path
+
+
+@dataclass(frozen=True)
+class PdfExportFailure:
+    request: PdfExportRequest
+    error: Exception
+
+
+class PdfExportWorker(QObject):
+    """Convert and save one complete vector PDF outside the GUI thread."""
+
+    succeeded = pyqtSignal(object)
+    failed = pyqtSignal(object)
+
+    def __init__(self, renderer: EpsRenderer, request: PdfExportRequest) -> None:
+        super().__init__()
+        self._renderer = renderer
+        self._request = request
+        self._cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel_event.set()
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            output = self._renderer.export_pdf(
+                self._request.source,
+                self._request.target,
+                cancel_event=self._cancel_event,
+            )
+        except Exception as error:
+            self.failed.emit(PdfExportFailure(self._request, error))
+        else:
+            self.succeeded.emit(output)
+
+
 class VideoWorker(QObject):
     """Prepare and encode a folder sequence outside the GUI thread."""
 
@@ -209,6 +250,8 @@ class MainWindow(QMainWindow):
         self._pending_preview_request: PreviewRequest | None = None
         self._export_thread: QThread | None = None
         self._export_worker: ExportWorker | None = None
+        self._pdf_export_thread: QThread | None = None
+        self._pdf_export_worker: PdfExportWorker | None = None
         self._video_thread: QThread | None = None
         self._video_worker: VideoWorker | None = None
         self._video_progress: QProgressDialog | None = None
@@ -262,6 +305,10 @@ class MainWindow(QMainWindow):
         self._save_png_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
         self._save_png_action.setEnabled(False)
         self._save_png_action.triggered.connect(self._show_export_dialog)
+
+        self._save_pdf_action = QAction("另存为 PDF(&D)…", self)
+        self._save_pdf_action.setEnabled(False)
+        self._save_pdf_action.triggered.connect(self._show_pdf_export_dialog)
 
         self._make_video_action = QAction("制作视频/动图(&V)…", self)
         self._make_video_action.setShortcut(QKeySequence("Ctrl+Shift+V"))
@@ -321,6 +368,7 @@ class MainWindow(QMainWindow):
         self._file_menu.addAction(self._open_action)
         self._file_menu.addAction(self._reload_action)
         self._file_menu.addAction(self._save_png_action)
+        self._file_menu.addAction(self._save_pdf_action)
         self._file_menu.addAction(self._make_video_action)
         self._file_menu.addSeparator()
         self._recent_menu = self._file_menu.addMenu("最近打开文件")
@@ -433,6 +481,7 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"{APP_NAME} — {source.name}")
             self._reload_action.setEnabled(True)
             self._save_png_action.setEnabled(True)
+            self._save_pdf_action.setEnabled(True)
             self._previous_page_action.setEnabled(False)
             self._next_page_action.setEnabled(False)
 
@@ -777,6 +826,89 @@ class MainWindow(QMainWindow):
         if not self._closing:
             self._save_png_action.setEnabled(self._current_file is not None)
 
+    # ----- Vector PDF export ----------------------------------------------
+
+    def _show_pdf_export_dialog(self) -> None:
+        if self._current_file is None:
+            return
+        initial_output = self._current_file.with_suffix(".pdf")
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("另存为 PDF"),
+            str(initial_output),
+            tr("PDF 文件 (*.pdf)"),
+        )
+        if not filename:
+            return
+        target = Path(filename).expanduser()
+        if target.suffix.lower() != ".pdf":
+            target = target.with_suffix(".pdf")
+        target = target.resolve()
+        if target.exists():
+            answer = QMessageBox.question(
+                self,
+                tr("覆盖 PDF 文件"),
+                tr("文件已存在，是否覆盖？\n{path}", path=target),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self._start_pdf_export(PdfExportRequest(self._current_file, target))
+
+    def _start_pdf_export(self, request: PdfExportRequest) -> None:
+        if self._pdf_export_thread is not None:
+            self.statusBar().showMessage(tr("已有 PDF 导出任务正在进行。"), 4000)
+            return
+        self._save_pdf_action.setEnabled(False)
+        self.statusBar().showMessage(tr("正在导出矢量 PDF…"))
+        thread = QThread(self)
+        worker = PdfExportWorker(self._renderer, request)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._on_pdf_export_succeeded)
+        worker.failed.connect(self._on_pdf_export_failed)
+        worker.succeeded.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(
+            lambda current=thread: self._on_pdf_export_thread_finished(current)
+        )
+        thread.finished.connect(thread.deleteLater)
+        self._pdf_export_thread = thread
+        self._pdf_export_worker = worker
+        thread.start()
+
+    @pyqtSlot(object)
+    def _on_pdf_export_succeeded(self, output: Path) -> None:
+        if self._closing:
+            return
+        self.statusBar().showMessage(tr("PDF 已保存：{path}", path=output), 6000)
+        QMessageBox.information(
+            self, tr("PDF 导出完成"), tr("已保存：\n{path}", path=output)
+        )
+
+    @pyqtSlot(object)
+    def _on_pdf_export_failed(self, failure: PdfExportFailure) -> None:
+        if self._closing or isinstance(failure.error, EpsRenderCancelledError):
+            return
+        message = str(failure.error) or tr("PDF 导出失败。")
+        self.statusBar().showMessage(message, 6000)
+        title = (
+            tr("未找到 Ghostscript")
+            if isinstance(failure.error, GhostscriptNotFoundError)
+            else tr("PDF 导出失败")
+        )
+        self.show_nonfatal_error(title, message)
+
+    def _on_pdf_export_thread_finished(self, thread: QThread) -> None:
+        if thread is not self._pdf_export_thread:
+            return
+        self._pdf_export_thread = None
+        self._pdf_export_worker = None
+        if not self._closing:
+            self._save_pdf_action.setEnabled(self._current_file is not None)
+
     # ----- Folder sequence video/GIF export ------------------------------
 
     def _show_video_dialog(self) -> None:
@@ -895,6 +1027,7 @@ class MainWindow(QMainWindow):
             (self._open_action, "打开 EPS/PS(&O)…"),
             (self._reload_action, "重新加载(&R)"),
             (self._save_png_action, "另存为 PNG(&S)…"),
+            (self._save_pdf_action, "另存为 PDF(&D)…"),
             (self._make_video_action, "制作视频/动图(&V)…"),
             (self._settings_action, "设置(&P)…"),
             (self._exit_action, "退出(&X)"),
@@ -1056,6 +1189,7 @@ class MainWindow(QMainWindow):
             f"<li>{tr('左右方向键切换相邻文件，上下方向键切换多页文档。')}</li>"
             f"<li>{tr('滚轮行为可在设置中选择；Ctrl+滚轮始终可缩放。')}</li>"
             f"<li>{tr('工具栏可直接缩放、适应窗口、翻页、切换文件和保存 PNG。')}</li>"
+            f"<li>{tr('可将当前 EPS/PS 完整保存为多页矢量 PDF。')}</li>"
             f"<li>{tr('可将 EPS/PS/PNG/JPG 序列制作成 MP4/GIF。')}</li></ul>"
             f"<h3>{tr('作者')}</h3>"
             "<p>Zhentong Li<br>eternitylzt@gmail.com</p>"
@@ -1105,10 +1239,17 @@ class MainWindow(QMainWindow):
         self._cancel_active_preview()
         if self._export_worker is not None:
             self._export_worker.cancel()
+        if self._pdf_export_worker is not None:
+            self._pdf_export_worker.cancel()
         if self._video_worker is not None:
             self._video_worker.cancel()
 
-        for thread in (self._preview_thread, self._export_thread, self._video_thread):
+        for thread in (
+            self._preview_thread,
+            self._export_thread,
+            self._pdf_export_thread,
+            self._video_thread,
+        ):
             if thread is not None and thread.isRunning():
                 # quit() is thread-safe and lets the event loop finish as soon
                 # as the cancellable worker returns.  Calling it before wait()

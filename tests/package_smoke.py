@@ -16,11 +16,14 @@ if not getattr(sys, "frozen", False):
 
 from PyQt6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QUrl
 from PyQt6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QImageReader, QWheelEvent
+from PyQt6.QtPdf import QPdfDocument
 from PyQt6.QtWidgets import QApplication
+from PyQt6 import sip
 
 from config import AppConfig, ConfigManager
 from dialogs import SettingsDialog
 from encoder import ffmpeg_executable
+from eps_renderer import EpsRenderError
 from i18n import set_language
 from main import EpsApplication
 from video_creator import VideoExporter, VideoExportRequest, VideoExportCancelled
@@ -100,6 +103,22 @@ def run():
                                        background="custom", background_color="#123456")
             assert png1.read_bytes() != png2.read_bytes()
             assert QImage(str(png1)).hasAlphaChannel()
+            pdf = renderer.export_pdf(eps, root / "multipage")
+            assert pdf.suffix == ".pdf" and pdf.is_file()
+            document = QPdfDocument(None)
+            assert document.load(str(pdf)) == QPdfDocument.Error.None_
+            assert document.pageCount() == page_count
+            document.close()
+            sip.delete(document)
+            existing = root / "existing.pdf"
+            existing.write_bytes(b"keep existing output")
+            broken = root / "broken.eps"
+            broken.write_bytes(b"this is not PostScript")
+            try:
+                renderer.export_pdf(broken, existing)
+                raise AssertionError("Invalid EPS unexpectedly produced a PDF")
+            except EpsRenderError:
+                assert existing.read_bytes() == b"keep existing output"
             frame = QImage(83, 65, QImage.Format.Format_RGB32)
             frame.fill(QColor("red"))
             jpg = root / "frame.jpg"
@@ -135,10 +154,11 @@ def run():
                 window._config.language = language
                 set_language(language)
                 window._retranslate_ui()
+                assert "PDF" in window._save_pdf_action.text().replace("&", "")
                 settings = SettingsDialog(window._config, window)
                 assert settings.get_config().language == language
                 settings.close()
-            print("PASS: multipage, zoom, wheel, backgrounds, EPS/PS navigation, drop, live refresh, PNG/JPG, MP4/GIF, crop, cancellation, languages", flush=True)
+            print("PASS: multipage, zoom, wheel, backgrounds, EPS/PS navigation, drop, live refresh, PNG/PDF/JPG, atomic PDF failure, MP4/GIF, crop, cancellation, languages", flush=True)
         finally:
             window.close()
             app.processEvents()
