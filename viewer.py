@@ -7,8 +7,23 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QObject, QSettings, QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence
+from PyQt6.QtCore import (
+    Qt,
+    QObject,
+    QSettings,
+    QThread,
+    QTimer,
+    QUrl,
+    pyqtSignal,
+    pyqtSlot,
+)
+from PyQt6.QtGui import (
+    QAction,
+    QDesktopServices,
+    QDragEnterEvent,
+    QDropEvent,
+    QKeySequence,
+)
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -42,6 +57,11 @@ from eps_renderer import (
 )
 from file_monitor import EpsFileMonitor
 from i18n import set_language, tr
+from update_checker import (
+    ReleaseInfo,
+    check_latest_release,
+    is_newer_version,
+)
 from video_creator import (
     VideoExportCancelled,
     VideoExporter,
@@ -223,6 +243,22 @@ class VideoWorker(QObject):
             self.succeeded.emit(output)
 
 
+class UpdateCheckWorker(QObject):
+    """Fetch release metadata after an explicit user request."""
+
+    succeeded = pyqtSignal(object)
+    failed = pyqtSignal(object)
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            release = check_latest_release()
+        except Exception as error:
+            self.failed.emit(error)
+        else:
+            self.succeeded.emit(release)
+
+
 class MainWindow(QMainWindow):
     """Application shell coordinating source monitoring and vector preview."""
 
@@ -255,6 +291,8 @@ class MainWindow(QMainWindow):
         self._video_thread: QThread | None = None
         self._video_worker: VideoWorker | None = None
         self._video_progress: QProgressDialog | None = None
+        self._update_thread: QThread | None = None
+        self._update_worker: UpdateCheckWorker | None = None
         self._siblings: list[Path] = []
         self._sibling_index = -1
         self._current_page_index = 0
@@ -362,6 +400,9 @@ class MainWindow(QMainWindow):
         self._about_action = QAction("关于(&A)", self)
         self._about_action.triggered.connect(self._show_about)
 
+        self._check_updates_action = QAction("检查更新(&U)…", self)
+        self._check_updates_action.triggered.connect(self._check_for_updates)
+
     def _create_menus(self) -> None:
         menu_bar = self.menuBar()
         self._file_menu = menu_bar.addMenu("文件(&F)")
@@ -392,6 +433,8 @@ class MainWindow(QMainWindow):
         self._view_menu.addAction(self._auto_refresh_action)
 
         self._help_menu = menu_bar.addMenu("帮助(&H)")
+        self._help_menu.addAction(self._check_updates_action)
+        self._help_menu.addSeparator()
         self._help_menu.addAction(self._about_action)
 
     def _create_toolbar(self) -> None:
@@ -1039,6 +1082,7 @@ class MainWindow(QMainWindow):
             (self._next_file_action, "下一个文件(&N)"),
             (self._previous_page_action, "上一页(&U)"),
             (self._next_page_action, "下一页(&D)"),
+            (self._check_updates_action, "检查更新(&U)…"),
             (self._about_action, "关于(&A)"),
         )
         for action, source in action_texts:
@@ -1205,6 +1249,82 @@ class MainWindow(QMainWindow):
         root.addWidget(buttons)
         dialog.exec()
 
+    def _check_for_updates(self) -> None:
+        """Start a single manual GitHub lookup without blocking the interface."""
+        if self._update_thread is not None:
+            return
+        self._check_updates_action.setEnabled(False)
+        self.statusBar().showMessage(tr("正在检查更新…"))
+
+        thread = QThread(self)
+        worker = UpdateCheckWorker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._on_update_check_succeeded)
+        worker.failed.connect(self._on_update_check_failed)
+        worker.succeeded.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.succeeded.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(
+            lambda current=thread: self._on_update_check_finished(current)
+        )
+        self._update_thread = thread
+        self._update_worker = worker
+        thread.start()
+
+    @pyqtSlot(object)
+    def _on_update_check_succeeded(self, release: ReleaseInfo) -> None:
+        if self._closing:
+            return
+        self.statusBar().clearMessage()
+        if not is_newer_version(release.version, APP_VERSION):
+            QMessageBox.information(
+                self,
+                tr("检查更新"),
+                tr("当前已是最新版（{version}）。", version=APP_VERSION),
+            )
+            return
+
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Information)
+        message.setWindowTitle(tr("发现新版本"))
+        message.setText(
+            tr(
+                "发现 EPS Live Viewer {latest}。\n当前版本：{current}",
+                latest=release.version,
+                current=APP_VERSION,
+            )
+        )
+        open_button = message.addButton(
+            tr("打开下载页面"), QMessageBox.ButtonRole.AcceptRole
+        )
+        message.addButton(QMessageBox.StandardButton.Close)
+        message.exec()
+        if message.clickedButton() is open_button:
+            QDesktopServices.openUrl(QUrl(release.url))
+
+    @pyqtSlot(object)
+    def _on_update_check_failed(self, error: Exception) -> None:
+        if self._closing:
+            return
+        self.statusBar().clearMessage()
+        detail = str(error).strip() or tr("无法连接 GitHub。")
+        QMessageBox.warning(
+            self,
+            tr("检查更新失败"),
+            tr("无法检查更新，请检查网络连接后重试。\n\n{error}", error=detail),
+        )
+
+    def _on_update_check_finished(self, thread: QThread) -> None:
+        if thread is not self._update_thread:
+            return
+        self._update_thread = None
+        self._update_worker = None
+        if not self._closing:
+            self._check_updates_action.setEnabled(True)
+
     def show_nonfatal_error(self, title: str, message: str) -> None:
         QMessageBox.warning(self, title, message)
 
@@ -1249,6 +1369,7 @@ class MainWindow(QMainWindow):
             self._export_thread,
             self._pdf_export_thread,
             self._video_thread,
+            self._update_thread,
         ):
             if thread is not None and thread.isRunning():
                 # quit() is thread-safe and lets the event loop finish as soon

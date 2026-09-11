@@ -155,10 +155,12 @@ def run():
                 set_language(language)
                 window._retranslate_ui()
                 assert "PDF" in window._save_pdf_action.text().replace("&", "")
+                update_text = window._check_updates_action.text().replace("&", "")
+                assert ("Update" in update_text) if language == "en" else ("更新" in update_text)
                 settings = SettingsDialog(window._config, window)
                 assert settings.get_config().language == language
                 settings.close()
-            print("PASS: multipage, zoom, wheel, backgrounds, EPS/PS navigation, drop, live refresh, PNG/PDF/JPG, atomic PDF failure, MP4/GIF, crop, cancellation, languages", flush=True)
+            print("PASS: multipage, zoom, wheel, backgrounds, EPS/PS navigation, drop, live refresh, PNG/PDF/JPG, atomic PDF failure, MP4/GIF, crop, cancellation, languages, update menu", flush=True)
         finally:
             window.close()
             app.processEvents()

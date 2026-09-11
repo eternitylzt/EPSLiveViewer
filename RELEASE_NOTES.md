@@ -1,23 +1,21 @@
-# EPS Live Viewer 1.2.0
+# EPS Live Viewer 1.3.0
 
 ## 简体中文
 
-- 新增“文件 → 另存为 PDF”。
-- 通过项目现有 Ghostscript `pdfwrite` 转换当前 EPS/PS，保留矢量质量和完整页数。
-- 多页 EPS/PS 会导出为多页 PDF；导出不受当前预览页码、缩放和背景设置影响。
-- PDF 转换在后台执行，并沿用 Ghostscript 自动检测、文件写入稳定等待和取消机制。
-- 使用临时文件完成原子保存；转换失败不会破坏已有目标文件，并会显示明确错误信息。
-- 中英文界面、帮助内容与 README 已同步更新。
+- 在“帮助”菜单新增“检查更新”。
+- 仅在用户手动点击后访问 `eternitylzt/EPSLiveViewer` 的 GitHub Releases API；启动和后台运行时不会检查网络。
+- 将 latest release 与当前程序版本比较。发现新版时显示版本号并可打开对应 Release 下载页面；已是最新版时给出明确提示。
+- 网络不可用、GitHub API 出错或响应无效时显示清晰错误，不影响本地功能。
+- 不包含自动下载或自动安装，也未增加第三方依赖。
 
-本功能未引入新的 PDF 第三方依赖，不改变预览、自动刷新、PNG、MP4/GIF 及其他已有功能。Windows、Linux、macOS Apple Silicon 和 macOS Intel 继续使用现有跨平台发布流程。EPS/PS 与 PDF 转换仍需系统 Ghostscript；发布包不要求 Python。
+本次更新保留 EPS/PS 矢量预览、多页查看、自动刷新、相邻文件浏览、PNG/多页矢量 PDF 导出及 MP4/GIF 制作等全部已有功能。Windows、Linux、macOS Apple Silicon 和 macOS Intel 继续使用现有跨平台发布流程。
 
 ## English
 
-- Added **File → Save as PDF**.
-- Converts the current EPS/PS through the existing Ghostscript `pdfwrite` path, preserving vector quality and the complete page set.
-- Multi-page EPS/PS files produce multi-page PDFs. Export is independent of the displayed page, zoom, and preview background.
-- PDF conversion runs in the background and reuses Ghostscript discovery, stable-file waiting, and cancellation handling.
-- Atomic output prevents a failed conversion from damaging an existing destination and clear errors are shown on failure.
-- Updated both interface languages, Help content, and the bilingual README.
+- Added **Help → Check for Updates**.
+- The app contacts the GitHub Releases API for `eternitylzt/EPSLiveViewer` only after an explicit click. It performs no startup or background checks.
+- The latest release is compared with the running app version. A newer version displays its number and can open the matching Release download page; an up-to-date installation receives a clear confirmation.
+- Network, GitHub API, and malformed-response failures are reported clearly without affecting local features.
+- There is no automatic download or installation and no new third-party dependency.
 
-No new PDF dependency was added, and preview, live refresh, PNG, MP4/GIF, and all existing features remain unchanged. The existing release workflow continues to build Windows, Linux, macOS Apple Silicon, and macOS Intel packages. EPS/PS and PDF conversion still require system Ghostscript; Python is not required.
+All existing EPS/PS vector preview, multi-page navigation, live refresh, neighboring-file browsing, PNG/multi-page vector PDF export, and MP4/GIF creation features remain available. The existing release workflow continues to build Windows, Linux, macOS Apple Silicon, and macOS Intel packages.

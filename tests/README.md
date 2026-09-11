@@ -14,7 +14,9 @@ python -m PyInstaller --noconfirm --onefile --console --name PackageSmoke --path
 The test covers multi-page EPS, PS file navigation, drop handling, live refresh,
 zoom/wheel modes, backgrounds, PNG page export, multi-page vector PDF export,
 atomic PDF failure handling, JPEG input, even/odd-sized MP4,
-GIF frame count, proportional cropping, export cancellation, and both languages.
+GIF frame count, proportional cropping, export cancellation, both languages, and the
+manual update-check menu. `test_update_checker.py` verifies version comparison and
+GitHub response/error handling offline, without making a network request.
 The video outputs are decoded by FFmpeg to verify that encoding produced readable files.
 It is a developer test executable and is not included in the application.
 

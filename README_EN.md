@@ -18,6 +18,7 @@ EPS Live Viewer is a lightweight desktop viewer for rapid scientific-plot iterat
 - Use a transparent checkerboard, white, or custom preview background.
 - Export PNG at 72–600 DPI with a transparent or composited background.
 - Export the complete current EPS/PS as a multi-page vector PDF through Ghostscript `pdfwrite`.
+- Manually check GitHub for a newer release from **Help → Check for Updates**, then optionally open its download page. The app never checks, downloads, or installs updates automatically.
 - Create MP4/GIF sequences from EPS, PS, PNG, JPG, and JPEG files, with filtering, ordering, frame rate, canvas, and background controls.
 - Select a crop region interactively on the first frame; the same normalized region is applied to frames with different resolutions.
 - Keep the ten most recently opened files.
@@ -72,6 +73,10 @@ Choose **文件 (File) → 制作视频/动图 (Create Video/Animation)**, then 
 
 EPS/PS sources use their first page. Frames preserve aspect ratio and are centered on the selected canvas.
 
+### 6. Check for updates
+
+Choose **Help → Check for Updates**. The app contacts the GitHub Releases API only after this manual action. If a newer version exists, it displays the version and offers to open that release's download page. It does not download or install anything and performs no startup or background checks. A network failure is reported without affecting local viewing or export features.
+
 ## FAQ
 
 ### Ghostscript was not found
@@ -97,6 +102,10 @@ If a Release is marked as unnotarized, open `Applications` in Finder for the fir
 ### Later frames have different resolutions
 
 The crop is not stored as fixed first-frame pixels. Its left, top, width, and height are stored as proportions of the image, then converted to each frame's own pixels before fitting the output canvas.
+
+### The update check reports a network error
+
+Confirm that `api.github.com` is reachable. A proxy, firewall, or temporary GitHub outage can prevent the check; dismissing the message leaves every local feature available offline.
 
 <details>
 <summary>Development and packaging</summary>
