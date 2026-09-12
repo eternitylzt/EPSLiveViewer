@@ -11,7 +11,7 @@ EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scienti
 - Live refresh when IDL, Python, MATLAB, Fortran, or another program regenerates the current file.
 - Neighbor browsing: EPS, PS, PNG, and JPG/JPEG files in the same folder are naturally sorted; use `Left`/`Right` to compare them.
 - Multi-page documents: use `Up`/`Down` for EPS/PS pages. The wheel can zoom, browse files, or change pages; `Ctrl + wheel` always zooms.
-- Image adjustments: rotate the current page left/right, invert the whole document, and define up to 16 color replacements.
+- Image adjustments: rotate left/right with a choice of current page or all pages, invert the whole document, and define up to 16 color replacements.
 - Flexible color selection: Qt's dialog supports RGB and HEX, and a screen picker where the operating system provides one. Each mapping has an RGB tolerance. Processing always follows “invert → replace”, so click order does not change the result.
 - PNG export at 72–600 DPI. For multi-page EPS/PS, save the current page or export every page into a new folder.
 - Document export: save adjusted output as PDF, PS, or EPS. PDF/PS retain all pages; standard EPS saves the current page.
@@ -36,11 +36,13 @@ Release packages do not require Python. Ghostscript is required to view or proce
 1. Choose **File → Open Image**, drop a supported file into the window, or pass its path on the command line.
 2. Scroll to zoom, drag to pan, double-click for 100%, or use the toolbar zoom/fit controls.
 3. Use the arrow keys to browse neighboring files and document pages. The status bar shows file position, page number, page size, zoom, and update time.
-4. Rotate or invert from the **Image** menu/toolbar. Under **Image → Replace Colors**, choose source/target colors and tolerance.
+4. Choose **Current Page Only** or **All Pages** from the toolbar dropdown or **Image → Rotation Scope**, then click left/right rotation. The scope affects subsequent rotations; All Pages rotates every page by the same amount relative to its own orientation. Under **Image → Replace Colors**, choose source/target colors and tolerance.
 5. Use **Save as PNG/PDF/EPS/PS** to export the adjusted result. Color replacement stores PDF/PS/EPS pages as raster images at the selected DPI. Without replacements, rotation and inversion of EPS/PS content remain vector-based.
 6. Choose **File → Create Video/Animation**, select a folder, and edit the frame list and output options. Multi-page EPS/PS files are expanded into consecutive frames automatically.
 
 Adjustments exist only in the current session and never modify the source. Live refresh retains the current file's adjustment state.
+
+Video crop previews and exported frames use the same rotation/color pipeline. Reopening the creation window does not rotate an existing preview again. MP4 uses H.264 Main / YUV420; odd dimensions are padded by just 1 pixel on the right or bottom, preserving the complete crop. GIF dimensions are unchanged.
 
 ## FAQ
 
@@ -51,6 +53,10 @@ Install Ghostscript and select its console executable in Settings if automatic d
 ### Why does a PNG/JPG become blurry when enlarged?
 
 PNG/JPG is raster data; the app cannot create missing detail. Photographs embedded in EPS/PS are likewise limited by their original resolution.
+
+### Why does the video switch images like a slideshow?
+
+Each image or page is one frame; duration is frame count divided by FPS. Distinct steps at low FPS are expected; raise FPS for faster switching. Version 2.0.1 improves MP4 player compatibility; re-export videos made with an older version.
 
 ### Why does an inverted PDF remain vector while arbitrary replacement does not?
 

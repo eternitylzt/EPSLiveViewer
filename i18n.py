@@ -17,7 +17,7 @@ def current_language() -> str:
     return _language
 
 
-def tr(source: str, **values: Any) -> str:
+def tr(source: str, /, **values: Any) -> str:
     """Translate a Chinese source string and safely substitute named values."""
     template = _ENGLISH.get(source, source) if _language == "en" else source
     return template.format(**values) if values else template
@@ -43,6 +43,11 @@ _ENGLISH = {
     "下一页(&D)": "Next Page",
     "向左旋转 90°(&L)": "Rotate 90° &Left",
     "向右旋转 90°(&R)": "Rotate 90° &Right",
+    "旋转范围": "Rotation Scope",
+    "仅当前页": "Current Page Only",
+    "全部页面": "All Pages",
+    "全部 {count} 页已旋转 {degrees}°": "Rotated all {count} pages by {degrees}°",
+    "MP4 使用兼容播放器的 H.264 编码；奇数宽高会在右侧或底部补 1 像素。每张图片/每页对应一帧，帧率决定切换速度。": "MP4 uses player-compatible H.264 encoding; odd dimensions are padded by 1 pixel on the right or bottom. Each image/page is one frame; FPS controls the switching speed.",
     "反转颜色(&I)": "&Invert Colors",
     "替换颜色(&C)…": "Replace &Colors…",
     "重置图像调整(&T)": "Rese&t Image Adjustments",

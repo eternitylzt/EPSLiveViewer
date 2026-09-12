@@ -172,35 +172,45 @@ class VideoExporter:
         request: VideoExportRequest,
         cancel_event: threading.Event,
     ) -> QImage:
-        source = frame.path
-        if source.suffix.lower() not in {".eps", ".ps"}:
-            image = self._composite_background(
-                self.read_raster(source), request.background_color
-            )
-            return apply_page_transforms(
-                image, frame.transforms, frame.page_number, cancel_event
-            )
-
         # Vector sources are rasterized only for the requested video canvas.
         # 300 DPI covers most HD frames; larger canvases use up to 600 DPI.
         longest_edge = max(request.width, request.height)
         dpi = max(150, min(600, round(300 * longest_edge / 1920)))
-        rendered = self._renderer.render(
-            source,
-            dpi=dpi,
-            cancel_event=cancel_event,
-            guard_dimensions=True,
-            page_number=frame.page_number,
-        )
+        return self.read_frame(frame, request.background_color, dpi, cancel_event)
+
+    def read_frame(
+        self,
+        frame: VideoFrameSource,
+        background_color: str,
+        dpi: int = 150,
+        cancel_event: threading.Event | None = None,
+    ) -> QImage:
+        """Read original pixels and apply the snapshot exactly once.
+
+        Crop previews and encoded frames must use this same path. Neither a
+        previously transformed preview nor the main view's rotation is input.
+        """
+        rendered = None
         try:
+            source = frame.path
+            if source.suffix.lower() in {".eps", ".ps"}:
+                rendered = self._renderer.render(
+                    source,
+                    dpi=dpi,
+                    cancel_event=cancel_event,
+                    guard_dimensions=True,
+                    page_number=frame.page_number,
+                )
+                source = rendered.png_path
             image = self._composite_background(
-                self.read_raster(rendered.png_path), request.background_color
+                self.read_raster(source), background_color
             )
             return apply_page_transforms(
                 image, frame.transforms, frame.page_number, cancel_event
             )
         finally:
-            self._renderer.cache.release(rendered.png_path)
+            if rendered is not None:
+                self._renderer.cache.release(rendered.png_path)
 
     @staticmethod
     def _composite_background(image: QImage, color: str) -> QImage:
@@ -394,14 +404,29 @@ class VideoExporter:
                 str(staging / "frame_%06d.png"),
             ]
             if request.output_format == "mp4":
+                # H.264 4:2:0 requires even dimensions. Padding preserves the
+                # selected crop instead of switching odd canvases to 4:4:4,
+                # which many Windows/macOS hardware decoders cannot play.
                 command.extend(
                     [
+                        "-vf",
+                        "pad=ceil(iw/2)*2:ceil(ih/2)*2:0:0,setsar=1",
                         "-c:v",
                         "libx264",
+                        "-profile:v",
+                        "main",
                         "-pix_fmt",
-                        "yuv420p"
-                        if request.width % 2 == 0 and request.height % 2 == 0
-                        else "yuv444p",
+                        "yuv420p",
+                        "-r",
+                        str(request.fps),
+                        "-fps_mode",
+                        "cfr",
+                        "-video_track_timescale",
+                        str(request.fps * 1024),
+                        "-bf",
+                        "0",
+                        "-g",
+                        str(request.fps * 2),
                         "-crf",
                         "18",
                         "-movflags",

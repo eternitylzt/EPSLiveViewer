@@ -798,8 +798,11 @@ class VectorGraphicsView(QGraphicsView):
         )
         options = QPdfDocumentRenderOptions()
         request_id = context.renderer.requestPage(self._page_index, size, options)
+        # Qt reuses the ID of an identical request already in its queue.
+        # Rapid color changes must not count that same completion twice.
+        if request_id not in context.pending:
+            self._in_flight += 1
         context.pending[request_id] = request
-        self._in_flight += 1
 
     def _pump_queue(self) -> None:
         context = self._active_context
@@ -821,8 +824,9 @@ class VectorGraphicsView(QGraphicsView):
             request_id = context.renderer.requestPage(
                 request.page_index, output_size, options
             )
+            if request_id not in context.pending:
+                self._in_flight += 1
             context.pending[request_id] = request
-            self._in_flight += 1
 
     def _on_page_rendered(
         self,

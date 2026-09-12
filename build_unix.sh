@@ -26,7 +26,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         --onedir \
         --osx-bundle-identifier com.zhentongli.epsliveviewer \
         main.py
-    app_version="${APP_VERSION:-2.0.0}"
+    app_version="${APP_VERSION:-2.0.1}"
     .venv/bin/python scripts/configure_macos_bundle.py \
         dist/EPSLiveViewer.app/Contents/Info.plist "$app_version"
     codesign --force --deep --sign - dist/EPSLiveViewer.app

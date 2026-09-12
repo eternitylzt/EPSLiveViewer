@@ -643,6 +643,7 @@ class EpsRenderer:
             *(["-dEPSCrop"] if crop_to_eps_bounds else []),
             "-sDEVICE=pdfwrite",
             "-dCompatibilityLevel=1.7",
+            "-dAutoRotatePages=/None",
             f"-sOutputFile={pdf_path}",
             str(snapshot),
         ]

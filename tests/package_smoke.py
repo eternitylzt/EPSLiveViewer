@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,10 +18,11 @@ if not getattr(sys, "frozen", False):
 from PyQt6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QUrl
 from PyQt6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QImageReader, QWheelEvent
 from PyQt6.QtPdf import QPdfDocument
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialog
 from PyQt6 import sip
 
 from config import AppConfig, ConfigManager
+from color_dialog import ColorReplacementDialog
 from dialogs import SettingsDialog
 from encoder import ffmpeg_executable
 from eps_renderer import EpsRenderError
@@ -112,6 +114,48 @@ def run():
             ) == 90
             assert window._current_transforms().inverted
             assert not window._view.grab().isNull()
+
+            # Real menu path: accept the color editor, render changed tiles,
+            # then reopen it. The old tr(source=...) crash lived in this path.
+            mappings = (ColorReplacement("#000000", "#00FF00", 8),)
+            def accept_colors(dialog):
+                dialog._list.addItem(dialog._item(mappings[0]))
+                return QDialog.DialogCode.Accepted
+            with patch.object(ColorReplacementDialog, "exec", accept_colors):
+                window._replace_colors_action.trigger()
+            assert window._current_transforms().replacements == mappings
+            assert window._view._in_flight == sum(
+                len(context.pending) for context in window._view._contexts.values()
+            )
+            wait_for(app, lambda: window._view._in_flight == 0)
+            assert not window._view.grab().isNull()
+            editor = ColorReplacementDialog(mappings, window)
+            assert editor.replacements() == mappings
+            editor.close()
+            window._reset_transforms()
+            window._rotate_all_action.trigger()
+            window._rotate_right_action.trigger()
+            assert all(window._current_transforms().rotation_for(p) == 90
+                       for p in range(1, page_count + 1))
+            window._rotate_current_action.trigger()
+            window._rotate_left_action.trigger()
+            assert window._current_transforms().rotation_for(window._current_page_index + 1) == 0
+            assert window._rotation_scope_button.text() == window._rotate_current_action.text()
+            window._reset_transforms()
+            window._view.set_page(0)
+            window._rotate_right_action.trigger()
+            original_state = window._current_transforms().snapshot()
+            previews = []
+            def preview_and_close(dialog):
+                previews.append(dialog._load_reference_preview())
+                return QDialog.DialogCode.Rejected
+            # Reopen through the same main-window action a user invokes.
+            with patch.object(VideoCreationDialog, "exec", preview_and_close):
+                for _ in range(3):
+                    window._make_video_action.trigger()
+            assert all(image == previews[0] for image in previews)
+            assert window._current_transforms().snapshot() == original_state
+            assert window._view._rotation == 90
 
             png1 = renderer.export_png(eps, root / "page1.png", dpi=72, page_number=1)
             png2 = renderer.export_png(eps, root / "page2.png", dpi=72, page_number=2,

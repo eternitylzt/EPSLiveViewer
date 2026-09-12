@@ -19,6 +19,13 @@ export cancellation, both languages, and the manual update-check menu.
 `test_update_checker.py` verifies version comparison and GitHub response/error
 handling offline, without making a network request.
 The video outputs are decoded by FFmpeg to verify that encoding produced readable files.
+Run `python -m unittest discover -s tests -p 'test_*.py' -v` for color-dialog
+add/edit/reopen checks, repeated rotated previews/exports, MP4 YUV420/Main format,
+decoded frame order, and timestamps at 1/7/30/60 FPS. Ghostscript-specific checks
+are skipped when Ghostscript is unavailable; other checks run in release CI.
+On Windows, `python tests/windows_media_playback.py` additionally plays a generated
+odd-sized MP4 through Windows Media Foundation and checks delivered frames and duration.
+QtMultimedia is used only by that source-level test, not added to the app payload.
 It is a developer test executable and is not included in the application.
 
 Measured with Python 3.12.10, PyInstaller 6.22.2 and imageio-ffmpeg 0.6.0:

@@ -34,7 +34,7 @@ from config import VIDEO_SOURCE_SUFFIXES, filename_sort_key
 from crop_dialog import CropSelectionDialog, NormalizedCrop
 from eps_renderer import EpsRenderer
 from i18n import tr
-from image_transforms import TransformSnapshot, apply_page_transforms
+from image_transforms import TransformSnapshot
 from video_creator import VideoExporter, VideoExportRequest, VideoFrameSource
 
 
@@ -75,6 +75,8 @@ class VideoCreationDialog(QDialog):
         self._crop_rect: NormalizedCrop | None = None
         self._reference_source: VideoFrameSource | None = None
         self._reference_raster_size: tuple[int, int] | None = None
+        self._preview_key: tuple | None = None
+        self._reference_preview = QImage()
 
         root = QVBoxLayout(self)
         folder_row = QHBoxLayout()
@@ -182,6 +184,12 @@ class VideoCreationDialog(QDialog):
         self._fps_spin.setValue(10)
         self._fps_spin.setSuffix(" FPS")
         form.addRow(tr("帧率："), self._fps_spin)
+
+        encoding_note = QLabel(tr(
+            "MP4 使用兼容播放器的 H.264 编码；奇数宽高会在右侧或底部补 1 像素。每张图片/每页对应一帧，帧率决定切换速度。"
+        ))
+        encoding_note.setWordWrap(True)
+        form.addRow(encoding_note)
 
         self._color_button = QPushButton()
         self._color_button.clicked.connect(self._choose_color)
@@ -341,16 +349,16 @@ class VideoCreationDialog(QDialog):
             return
         try:
             image = VideoExporter.read_raster(source.path)
-            image = apply_page_transforms(
-                image, source.transforms, source.page_number
-            )
         except RuntimeError as error:
             self._reference_label.setText(
                 tr("首帧：{name}（{error}）", name=source.display_name, error=error)
             )
             return
-        self._reference_raster_size = (image.width(), image.height())
-        self._set_dimensions(image.width(), image.height())
+        size = image.size()
+        if source.transforms.rotation_for(source.page_number) in {90, 270}:
+            size.transpose()
+        self._reference_raster_size = (size.width(), size.height())
+        self._set_dimensions(*self._reference_raster_size)
 
     def _sync_reference(self, force: bool = False) -> None:
         source = self._first_source()
@@ -382,38 +390,19 @@ class VideoCreationDialog(QDialog):
     def _load_reference_preview(self) -> QImage:
         if self._reference_source is None:
             raise RuntimeError(tr("没有可预览的首帧。"))
-        if self._reference_source.path.suffix.lower() not in {".eps", ".ps"}:
-            image = VideoExporter.read_raster(self._reference_source.path)
-            image = VideoExporter._composite_background(
-                image, self._background_color.name()
-            )
-            return apply_page_transforms(
-                image,
-                self._reference_source.transforms,
-                self._reference_source.page_number,
-            )
-
+        stat = self._reference_source.path.stat()
+        key = (self._reference_source, stat.st_mtime_ns, stat.st_size,
+               self._background_color.name())
+        if key == self._preview_key:
+            return QImage(self._reference_preview)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        rendered = None
         try:
-            rendered = self._renderer.render(
-                self._reference_source.path,
-                dpi=150,
-                guard_dimensions=True,
-                page_number=self._reference_source.page_number,
+            self._reference_preview = VideoExporter(self._renderer).read_frame(
+                self._reference_source, self._background_color.name()
             )
-            image = VideoExporter.read_raster(rendered.png_path)
-            image = VideoExporter._composite_background(
-                image, self._background_color.name()
-            )
-            return apply_page_transforms(
-                image,
-                self._reference_source.transforms,
-                self._reference_source.page_number,
-            )
+            self._preview_key = key
+            return QImage(self._reference_preview)
         finally:
-            if rendered is not None:
-                self._renderer.cache.release(rendered.png_path)
             QApplication.restoreOverrideCursor()
 
     def _choose_crop_region(self) -> None:
@@ -430,10 +419,13 @@ class VideoCreationDialog(QDialog):
             self._crop_rect,
             self,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        self._crop_rect = dialog.normalized_crop()
-        crop_width, crop_height = dialog.pixel_crop_size()
+        try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            self._crop_rect = dialog.normalized_crop()
+            crop_width, crop_height = dialog.pixel_crop_size()
+        finally:
+            dialog.deleteLater()
         if self._crop_rect is None:
             if self._reference_raster_size is not None:
                 self._set_dimensions(*self._reference_raster_size)

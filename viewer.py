@@ -19,6 +19,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QAction,
+    QActionGroup,
     QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
@@ -36,6 +37,7 @@ from PyQt6.QtWidgets import (
     QStyle,
     QTextBrowser,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
 )
 
@@ -445,6 +447,16 @@ class MainWindow(QMainWindow):
         self._rotate_right_action.setEnabled(False)
         self._rotate_right_action.triggered.connect(lambda: self._rotate_page(90))
 
+        self._rotation_scope_group = QActionGroup(self)
+        self._rotate_current_action = QAction("仅当前页", self)
+        self._rotate_all_action = QAction("全部页面", self)
+        for action in (self._rotate_current_action, self._rotate_all_action):
+            action.setCheckable(True)
+            self._rotation_scope_group.addAction(action)
+        scope = self._settings.value("rotationScope", "current")
+        (self._rotate_all_action if scope == "all" else self._rotate_current_action).setChecked(True)
+        self._rotation_scope_group.triggered.connect(self._rotation_scope_changed)
+
         self._invert_colors_action = QAction("反转颜色(&I)", self)
         self._invert_colors_action.setCheckable(True)
         self._invert_colors_action.setShortcut(QKeySequence("Ctrl+Shift+I"))
@@ -496,6 +508,9 @@ class MainWindow(QMainWindow):
         self._view_menu.addAction(self._auto_refresh_action)
 
         self._image_menu = menu_bar.addMenu("图像(&I)")
+        self._rotation_scope_menu = self._image_menu.addMenu("旋转范围")
+        self._rotation_scope_menu.addAction(self._rotate_current_action)
+        self._rotation_scope_menu.addAction(self._rotate_all_action)
         self._image_menu.addAction(self._rotate_left_action)
         self._image_menu.addAction(self._rotate_right_action)
         self._image_menu.addSeparator()
@@ -535,6 +550,10 @@ class MainWindow(QMainWindow):
         self._toolbar.addAction(self._zoom_in_action)
         self._toolbar.addAction(self._fit_action)
         self._toolbar.addSeparator()
+        self._rotation_scope_button = QToolButton(self._toolbar)
+        self._rotation_scope_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._rotation_scope_button.setMenu(self._rotation_scope_menu)
+        self._toolbar.addWidget(self._rotation_scope_button)
         self._toolbar.addAction(self._rotate_left_action)
         self._toolbar.addAction(self._rotate_right_action)
         self._toolbar.addAction(self._invert_colors_action)
@@ -707,13 +726,27 @@ class MainWindow(QMainWindow):
     def _rotate_page(self, degrees: int) -> None:
         if self._current_file is None or self._page_count < 1:
             return
-        rotation = self._current_transforms().rotate_page(
-            self._current_page_index + 1, degrees
-        )
+        state = self._current_transforms()
+        if self._rotate_all_action.isChecked():
+            for page in range(1, self._page_count + 1):
+                state.rotate_page(page, degrees)
+            message = tr("全部 {count} 页已旋转 {degrees}°", count=self._page_count, degrees=degrees)
+        else:
+            rotation = state.rotate_page(self._current_page_index + 1, degrees)
+            message = tr("当前页已旋转至 {degrees}°", degrees=rotation)
         self._apply_current_transforms()
-        self.statusBar().showMessage(
-            tr("当前页已旋转至 {degrees}°", degrees=rotation), 2500
+        self.statusBar().showMessage(message, 2500)
+
+    def _rotation_scope_changed(self, _action: QAction) -> None:
+        self._settings.setValue(
+            "rotationScope", "all" if self._rotate_all_action.isChecked() else "current"
         )
+        self._update_rotation_scope_button()
+
+    def _update_rotation_scope_button(self) -> None:
+        action = self._rotation_scope_group.checkedAction()
+        self._rotation_scope_button.setText(action.text())
+        self._rotation_scope_button.setToolTip(tr("旋转范围"))
 
     def _set_inverted(self, inverted: bool) -> None:
         if self._current_file is None:
@@ -726,9 +759,12 @@ class MainWindow(QMainWindow):
             return
         state = self._current_transforms()
         dialog = ColorReplacementDialog(state.replacements, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        state.replacements = dialog.replacements()
+        try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            state.replacements = dialog.replacements()
+        finally:
+            dialog.deleteLater()
         self._apply_current_transforms()
 
     def _reset_transforms(self) -> None:
@@ -1220,9 +1256,13 @@ class MainWindow(QMainWindow):
             transforms_by_source=snapshots,
             parent=self,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        request = dialog.request()
+        try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            request = dialog.request()
+        finally:
+            # Release the frame list and cached image when this modal closes.
+            dialog.deleteLater()
         if request.target.exists():
             answer = QMessageBox.question(
                 self,
@@ -1340,6 +1380,8 @@ class MainWindow(QMainWindow):
             (self._next_page_action, "下一页(&D)"),
             (self._rotate_left_action, "向左旋转 90°(&L)"),
             (self._rotate_right_action, "向右旋转 90°(&R)"),
+            (self._rotate_current_action, "仅当前页"),
+            (self._rotate_all_action, "全部页面"),
             (self._invert_colors_action, "反转颜色(&I)"),
             (self._replace_colors_action, "替换颜色(&C)…"),
             (self._reset_transforms_action, "重置图像调整(&T)"),
@@ -1352,6 +1394,8 @@ class MainWindow(QMainWindow):
         self._recent_menu.setTitle(tr("最近打开文件"))
         self._view_menu.setTitle(tr("查看(&V)"))
         self._image_menu.setTitle(tr("图像(&I)"))
+        self._rotation_scope_menu.setTitle(tr("旋转范围"))
+        self._update_rotation_scope_button()
         self._help_menu.setTitle(tr("帮助(&H)"))
         self._toolbar.setWindowTitle(tr("快捷工具"))
         self._update_recent_menu()
