@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QImage, QImageReader, QPainter
 
 from config import VIDEO_SOURCE_SUFFIXES
@@ -154,9 +154,13 @@ class VideoExporter:
         )
 
     @staticmethod
-    def read_raster(source: Path) -> QImage:
+    def read_raster(source: Path, max_edge: int | None = None) -> QImage:
         reader = QImageReader(str(source))
         reader.setAutoTransform(True)
+        if max_edge is not None and reader.size().isValid():
+            size = reader.size()
+            if max(size.width(), size.height()) > max_edge:
+                reader.setScaledSize(size.scaled(QSize(max_edge, max_edge), Qt.AspectRatioMode.KeepAspectRatio))
         image = reader.read()
         if image.isNull():
             detail = reader.errorString().strip()
@@ -184,12 +188,19 @@ class VideoExporter:
         background_color: str,
         dpi: int = 150,
         cancel_event: threading.Event | None = None,
+        max_edge: int | None = None,
     ) -> QImage:
         """Read original pixels and apply the snapshot exactly once.
 
         Crop previews and encoded frames must use this same path. Neither a
         previously transformed preview nor the main view's rotation is input.
         """
+        image = self.read_original(frame, dpi, cancel_event, max_edge)
+        image = self._composite_background(image, background_color)
+        return apply_page_transforms(image, frame.transforms, frame.page_number, cancel_event)
+
+    def read_original(self, frame, dpi=72, cancel_event=None, max_edge=None):
+        """Unadjusted pixels, optionally limited for inexpensive UI previews."""
         rendered = None
         try:
             source = frame.path
@@ -202,12 +213,7 @@ class VideoExporter:
                     page_number=frame.page_number,
                 )
                 source = rendered.png_path
-            image = self._composite_background(
-                self.read_raster(source), background_color
-            )
-            return apply_page_transforms(
-                image, frame.transforms, frame.page_number, cancel_event
-            )
+            return self.read_raster(source, max_edge)
         finally:
             if rendered is not None:
                 self._renderer.cache.release(rendered.png_path)

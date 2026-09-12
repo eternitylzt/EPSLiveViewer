@@ -36,6 +36,7 @@ from eps_renderer import EpsRenderer
 from i18n import tr
 from image_transforms import TransformSnapshot
 from video_creator import VideoExporter, VideoExportRequest, VideoFrameSource
+from animation_preview import AnimationPreviewDialog
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,9 @@ class VideoCreationDialog(QDialog):
         self._clear_crop_button.clicked.connect(self._clear_crop)
         self._clear_crop_button.setEnabled(False)
         crop_row.addWidget(self._clear_crop_button)
+        self._trial_button = QPushButton(tr("试播…"))
+        self._trial_button.clicked.connect(self._show_trial)
+        crop_row.addWidget(self._trial_button)
         root.addLayout(crop_row)
 
         options = QGroupBox(tr("输出参数"))
@@ -184,6 +188,9 @@ class VideoCreationDialog(QDialog):
         self._fps_spin.setValue(10)
         self._fps_spin.setSuffix(" FPS")
         form.addRow(tr("帧率："), self._fps_spin)
+        self._duration_label = QLabel()
+        self._fps_spin.valueChanged.connect(self._update_timing)
+        form.addRow(self._duration_label)
 
         encoding_note = QLabel(tr(
             "MP4 使用兼容播放器的 H.264 编码；奇数宽高会在右侧或底部补 1 像素。每张图片/每页对应一帧，帧率决定切换速度。"
@@ -328,6 +335,25 @@ class VideoCreationDialog(QDialog):
                 excluded=self._excluded.count(),
             )
         )
+        self._update_timing()
+        self._trial_button.setEnabled(self._included.count() > 0)
+
+    def _update_timing(self):
+        count, fps = self._included.count(), self._fps_spin.value()
+        self._duration_label.setText(tr("{frames} 帧 · {fps} FPS · 预计 {duration:.2f} 秒",
+                                        frames=count, fps=fps, duration=count / fps))
+
+    def _show_trial(self):
+        try:
+            dialog = AnimationPreviewDialog(self.request(), VideoExporter(self._renderer), self)
+        except Exception as error:
+            QMessageBox.warning(self, tr("视频试播"), str(error))
+            return
+        try:
+            dialog.exec()
+        finally:
+            dialog.close()
+            dialog.deleteLater()
 
     def _first_source(self) -> VideoFrameSource | None:
         if self._included.count() == 0:

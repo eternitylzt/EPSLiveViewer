@@ -127,7 +127,7 @@ def run():
             assert window._view._in_flight == sum(
                 len(context.pending) for context in window._view._contexts.values()
             )
-            wait_for(app, lambda: window._view._in_flight == 0)
+            wait_for(app, lambda: window._view._in_flight == 0 and not window._view._color_jobs)
             assert not window._view.grab().isNull()
             editor = ColorReplacementDialog(mappings, window)
             assert editor.replacements() == mappings
@@ -135,6 +135,12 @@ def run():
             window._reset_transforms()
             window._rotate_all_action.trigger()
             window._rotate_right_action.trigger()
+            assert all(window._current_transforms().rotation_for(p) == 90
+                       for p in range(1, page_count + 1))
+            window._undo_action.trigger()
+            assert all(window._current_transforms().rotation_for(p) == 0
+                       for p in range(1, page_count + 1))
+            window._redo_action.trigger()
             assert all(window._current_transforms().rotation_for(p) == 90
                        for p in range(1, page_count + 1))
             window._rotate_current_action.trigger()

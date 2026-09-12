@@ -1,23 +1,21 @@
-# EPS Live Viewer 2.0.1
+# EPS Live Viewer 2.1.0
 
 ## 中文
 
-- 修复颜色替换在确认源颜色、目标颜色和容差后闪退的问题；中英文界面均可正常添加、编辑和重新打开替换列表。
-- 修复快速反色、替换颜色时重复渲染计数导致预览停止更新的问题。
-- 统一视频裁剪预览和导出帧的读取流程：从原文件应用一次旋转和颜色变换，复用同一首帧预览；关闭重开制作窗口保持一致。
-- 禁用预览 PDF 转换时额外的自动转向，避免与手动旋转产生方向差异。
-- 新增“旋转范围”：在“图像”菜单或工具栏下拉按钮中选择“仅当前页”或“全部页面”，再使用左/右旋转按钮。全部页面在各自原方向上旋转相同角度。
-- 改进 MP4 播放兼容性：统一 H.264 Main / YUV420、固定帧率和明确时间戳；奇数宽高在右侧或底部补 1 像素，避免切换为 YUV444。GIF 尺寸不变。旧 MP4 请重新导出。
-- 新增颜色编辑、重复视频预览、MP4 帧顺序/时间戳回归检查，并通过 Windows Media Foundation 实际播放验证；更新中英文说明。
-- 未新增运行依赖；继续提供 Windows、Linux、macOS Apple Silicon / Intel 发布包。
+- 新增每个文件独立的撤销／重做，支持旋转、反色、颜色替换和重置；保留最近 50 次操作，全部页旋转作为一次操作撤销。
+- 调色窗口支持直接编辑色值、RGB 选色和容差，并实时显示低分辨率预览；按住按钮可对照原始配色。确定应用、取消保留原设置。
+- 主窗口及比较窗口的颜色处理移到可取消的后台任务；快速编辑或切换页面时丢弃过时结果。
+- 视频窗口显示帧数、FPS 和预计时长，新增正式导出前的低分辨率试播，支持暂停、拖动进度和循环播放，应用当前裁剪、顺序与图像调整。
+- 新增并排比较：左侧参考图默认锁定，右侧可选其他文件/页面或跟随主窗口，并支持联动缩放和平移。
+- 帮助菜单新增本地诊断报告，可查看并复制版本、当前图像调整和最近错误。不会自动上传；报告可能含本地路径。
+- 更新中英文说明与帮助；新增回归检查。没有新增运行依赖或视频播放框架。
 
 ## English
 
-- Fixed the crash after confirming replacement colors and tolerance; adding, editing, and reopening mappings now work in both languages.
-- Fixed preview stalls caused by counting duplicate render requests during rapid color changes.
-- Unified crop preview and video frame loading: apply rotation/colors once to the original source and reuse the reference preview. Closing and reopening the creation dialog produces consistent previews.
-- Disabled extra automatic orientation in preview PDF conversion to keep it aligned with manual rotation.
-- Added Rotation Scope to the Image menu and toolbar: Current Page Only or All Pages. All Pages rotates every page relative to its own orientation.
-- Improved MP4 compatibility with H.264 Main / YUV420, constant frame rate, and explicit timestamps. Odd dimensions receive 1 pixel of right/bottom padding instead of YUV444 output. GIF dimensions are unchanged. Re-export older MP4 files to use the fix.
-- Added color-editor, repeated-preview, and decoded-frame/timestamp regression checks; verified actual playback with Windows Media Foundation and updated bilingual documentation.
-- No additional runtime dependency. Windows, Linux, macOS Apple Silicon, and macOS Intel packages remain available.
+- Added independent undo/redo per file for rotation, inversion, replacements, and resets. Keeps up to 50 operations; All Pages rotation is a single operation.
+- Added editable color values, RGB selection, tolerance, and live low-resolution preview. Hold a button to compare original colors. OK applies changes; Cancel preserves prior settings.
+- Moved main/comparison view color processing to cancellable background tasks and discard obsolete results after rapid edits or page changes.
+- Added frame/FPS/duration estimates and low-resolution video rehearsal before export, with pause, seek, loop, current crop, frame order, and adjustments.
+- Added side-by-side comparison with a locked left reference, an independently selected or main-window-following right view, and linked zoom/pan.
+- Added manually viewed/copied local diagnostics for versions, current adjustments, and recent errors. No automatic uploads; reports may contain local paths.
+- Updated bilingual documentation/help and regression coverage. No new runtime dependency or media framework.

@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QStyle
 from PyQt6 import sip
 
 from config import SUPPORTED_SOURCE_SUFFIXES
+from background_tasks import TaskRunner
 from i18n import tr
 from image_transforms import ColorReplacement, adjusted_color, apply_color_adjustments
 
@@ -222,6 +223,7 @@ class VectorGraphicsView(QGraphicsView):
     source_dropped = pyqtSignal(str)
     file_navigation_requested = pyqtSignal(int)
     page_navigation_requested = pyqtSignal(int)
+    viewport_changed = pyqtSignal()
 
     TILE_PIXELS = 768
     MAX_IN_FLIGHT = 4
@@ -253,6 +255,10 @@ class VectorGraphicsView(QGraphicsView):
         self._color_replacements: tuple[ColorReplacement, ...] = ()
         self._navigation_wheel_remainder = 0
         self._closed = False
+        self._color_runner = TaskRunner(self)
+        self._color_jobs = {}
+        self._color_revision = 0
+        self._sync_suppressed = False
 
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
@@ -271,6 +277,8 @@ class VectorGraphicsView(QGraphicsView):
         self._detail_timer.timeout.connect(self._refresh_visible_tiles)
         self.horizontalScrollBar().valueChanged.connect(self._schedule_detail)
         self.verticalScrollBar().valueChanged.connect(self._schedule_detail)
+        self.horizontalScrollBar().valueChanged.connect(self._notify_viewport)
+        self.verticalScrollBar().valueChanged.connect(self._notify_viewport)
 
         checker = QPixmap(16, 16)
         checker.fill(QColor("#F8F8F8"))
@@ -372,6 +380,7 @@ class VectorGraphicsView(QGraphicsView):
             if size is not None:
                 self.image_loaded.emit(*size)
         if self._page_item is not None and colors_changed:
+            self._invalidate_colors()
             self._page_item.clear_cache()
             self._queued.clear()
             self._queued_keys.clear()
@@ -389,6 +398,39 @@ class VectorGraphicsView(QGraphicsView):
         item.setRotation(self._rotation)
         self._scene.setSceneRect(item.sceneBoundingRect())
         self.viewport().update()
+
+    def _invalidate_colors(self):
+        self._color_revision += 1
+        self._color_runner.cancel_all()
+
+    def viewport_state(self):
+        rect = self._scene.sceneRect()
+        if rect.isEmpty():
+            return None
+        center = self.mapToScene(self.viewport().rect().center())
+        return (abs(self.transform().m11()),
+                (center.x() - rect.left()) / rect.width(),
+                (center.y() - rect.top()) / rect.height())
+
+    def set_viewport_state(self, state):
+        if state is None or not self.has_document():
+            return
+        scale, x, y = state
+        self._sync_suppressed = True
+        try:
+            self._fit_mode = False
+            scale = max(self.MIN_ZOOM, min(self.MAX_ZOOM, scale))
+            self.setTransform(QTransform().scale(scale, scale))
+            rect = self._scene.sceneRect()
+            self.centerOn(rect.left() + x * rect.width(), rect.top() + y * rect.height())
+            self._emit_zoom()
+            self._schedule_detail()
+        finally:
+            self._sync_suppressed = False
+
+    def _notify_viewport(self, *_args):
+        if not self._sync_suppressed:
+            self.viewport_changed.emit()
 
     def load_pdf(
         self,
@@ -446,6 +488,7 @@ class VectorGraphicsView(QGraphicsView):
                 (old_center.y() - old_rect.top()) / max(old_rect.height(), 1e-9),
             )
 
+        self._invalidate_colors()
         old_context = self._active_context
         if old_context is not None:
             old_context.active = False
@@ -509,6 +552,7 @@ class VectorGraphicsView(QGraphicsView):
             self.render_error.emit(tr("预览 PDF 的页面尺寸无效。"))
             return False
 
+        self._invalidate_colors()
         self._detail_timer.stop()
         self._queued.clear()
         self._queued_keys.clear()
@@ -654,6 +698,7 @@ class VectorGraphicsView(QGraphicsView):
         painter.drawRect(self._page_item.sceneBoundingRect())
 
     def clear_document(self) -> None:
+        self._invalidate_colors()
         self._detail_timer.stop()
         self._queued.clear()
         self._queued_keys.clear()
@@ -675,12 +720,15 @@ class VectorGraphicsView(QGraphicsView):
         self.viewport().update()
 
     def close(self) -> bool:  # type: ignore[override]
+        if not self._color_runner.shutdown():
+            return False
         self._closed = True
         self.clear_document()
         return super().close()
 
     def _emit_zoom(self) -> None:
         self.zoom_changed.emit(abs(self.transform().m11()) * 100.0)
+        self._notify_viewport()
 
     def _schedule_detail(self, _value: int | None = None, immediate: bool = False) -> None:
         if not self.has_document() or self._closed:
@@ -746,6 +794,11 @@ class VectorGraphicsView(QGraphicsView):
             and request.page_index == self._page_index
             and request.key is not None
         }
+        pending_keys.update(
+            request.key for revision, request in self._color_jobs.values()
+            if revision == self._color_revision and request.generation == context.generation
+            and request.page_index == self._page_index
+        )
         for row in range(top // tile, bottom // tile + 1):
             for column in range(left // tile, right // tile + 1):
                 key: TileKey = (level, column, row)
@@ -810,7 +863,7 @@ class VectorGraphicsView(QGraphicsView):
             context is not None
             and context.active
             and self._queued
-            and self._in_flight < self.MAX_IN_FLIGHT
+            and self._in_flight + len(self._color_jobs) < self.MAX_IN_FLIGHT
         ):
             request = self._queued.popleft()
             if request.generation != context.generation:
@@ -854,19 +907,17 @@ class VectorGraphicsView(QGraphicsView):
             if image.isNull():
                 self.render_error.emit(tr("QtPdf 无法渲染预览区域。"))
             else:
-                image = apply_color_adjustments(
-                    image,
-                    self._invert_colors,
-                    self._color_replacements,
-                )
-                pixmap = QPixmap.fromImage(image)
-                if request.kind == "overview":
-                    self._page_item.set_overview(pixmap)
-                elif request.key is not None:
-                    # The active grid may have changed while the tile rendered;
-                    # cache it for a possible zoom-back without changing the
-                    # grid currently selected by the user's latest zoom.
-                    self._page_item.add_tile(request.key, pixmap)
+                if self._invert_colors or self._color_replacements:
+                    inverted, replacements = self._invert_colors, self._color_replacements
+                    number = self._color_runner.submit(
+                        lambda cancel, raw=image: apply_color_adjustments(
+                            raw, inverted, replacements, cancel),
+                        lambda result, error, cancelled: self._on_colors_ready(
+                            number, result, error, cancelled),
+                    )
+                    self._color_jobs[number] = (self._color_revision, request)
+                else:
+                    self._install_image(request, image)
 
         self._finalize_context_if_idle(context)
         # Completion of an obsolete document also frees a global render slot;
@@ -876,6 +927,29 @@ class VectorGraphicsView(QGraphicsView):
         if active is not None and not self._queued and not active.pending:
             # Scrolling may have changed while the final tile was running.
             self._schedule_detail()
+
+    def _install_image(self, request, image):
+        pixmap = QPixmap.fromImage(image)
+        if request.kind == "overview":
+            self._page_item.set_overview(pixmap)
+        elif request.key is not None:
+            self._page_item.add_tile(request.key, pixmap)
+
+    def _on_colors_ready(self, number, image, error, cancelled):
+        entry = self._color_jobs.pop(number, None)
+        if entry is None or self._closed:
+            return
+        revision, request = entry
+        context = self._active_context
+        if (not cancelled and revision == self._color_revision and context is not None
+                and request.generation == context.generation
+                and request.page_index == self._page_index and self._page_item is not None):
+            if error is not None:
+                self.render_error.emit(str(error))
+            elif image is not None:
+                self._install_image(request, image)
+        self._pump_queue()
+        self._schedule_detail()
 
     def _finalize_context_if_idle(self, context: _DocumentContext | None) -> None:
         if context is None or context.active or context.pending:

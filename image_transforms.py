@@ -59,6 +59,11 @@ class DocumentTransforms:
             tuple(sorted(self.page_rotations.items())),
         )
 
+    def restore(self, snapshot: "TransformSnapshot") -> None:
+        self.inverted = snapshot.inverted
+        self.replacements = snapshot.replacements
+        self.page_rotations = dict(snapshot.page_rotations)
+
 
 @dataclass(frozen=True)
 class TransformSnapshot:
@@ -75,6 +80,35 @@ class TransformSnapshot:
 
     def has_color_adjustments(self) -> bool:
         return self.inverted or bool(self.replacements)
+
+
+class TransformHistory:
+    """Bounded state history; source image pixels are never stored here."""
+
+    LIMIT = 50
+
+    def __init__(self):
+        self.undo_states: list[TransformSnapshot] = []
+        self.redo_states: list[TransformSnapshot] = []
+
+    def record(self, before: TransformSnapshot, after: TransformSnapshot):
+        if before == after:
+            return
+        self.undo_states.append(before)
+        del self.undo_states[:-self.LIMIT]
+        self.redo_states.clear()
+
+    def undo(self, current: TransformSnapshot) -> TransformSnapshot:
+        if not self.undo_states:
+            return current
+        self.redo_states.append(current)
+        return self.undo_states.pop()
+
+    def redo(self, current: TransformSnapshot) -> TransformSnapshot:
+        if not self.redo_states:
+            return current
+        self.undo_states.append(current)
+        return self.redo_states.pop()
 
 
 def apply_color_adjustments(

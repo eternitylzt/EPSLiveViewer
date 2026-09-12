@@ -2,6 +2,8 @@
 
 [中文](README.md) | [English](README_EN.md)
 
+Current version: **2.1.0**.
+
 EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scientific plotting workflows. It live-previews EPS/PS files, opens PNG/JPG directly, and provides neighboring-file comparison, multi-page navigation, rotation, color inversion/replacement, export, and video creation in one interface.
 
 ## Main features
@@ -13,9 +15,14 @@ EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scienti
 - Multi-page documents: use `Up`/`Down` for EPS/PS pages. The wheel can zoom, browse files, or change pages; `Ctrl + wheel` always zooms.
 - Image adjustments: rotate left/right with a choice of current page or all pages, invert the whole document, and define up to 16 color replacements.
 - Flexible color selection: Qt's dialog supports RGB and HEX, and a screen picker where the operating system provides one. Each mapping has an RGB tolerance. Processing always follows “invert → replace”, so click order does not change the result.
+- Undo/redo: `Ctrl+Z` undoes adjustments; `Ctrl+Y` or `Ctrl+Shift+Z` redoes them. Each file keeps up to 50 operations, including across live refreshes.
+- Live color preview: edits run in the background; hold View Original to compare original colors. OK applies the draft and Cancel preserves existing adjustments.
+- Side-by-side comparison: pin the left reference and choose an independent right image/page or follow the main window, with linked zoom and pan.
 - PNG export at 72–600 DPI. For multi-page EPS/PS, save the current page or export every page into a new folder.
 - Document export: save adjusted output as PDF, PS, or EPS. PDF/PS retain all pages; standard EPS saves the current page.
 - MP4/GIF creation: every EPS/PS page and every PNG/JPG can be an independent frame. Reorder/exclude frames, inherit the first frame's canvas size, crop proportionally, choose FPS, and apply existing rotation/color adjustments.
+- Video rehearsal: see estimated duration and play, pause, seek, or loop a low-resolution preview before exporting. The output video is not overwritten.
+- Manual diagnostics: view and copy versions, current page and adjustments, and recent errors. Reports are never uploaded automatically.
 - Chinese/English interface, recent files, configurable background, and manual GitHub update checks.
 
 The viewer uses each file's own page/image dimensions and is not limited to A4, so no paper-size setting is needed. PNG/JPG is raster data and remains limited by its original pixels when enlarged.
@@ -39,6 +46,14 @@ Release packages do not require Python. Ghostscript is required to view or proce
 4. Choose **Current Page Only** or **All Pages** from the toolbar dropdown or **Image → Rotation Scope**, then click left/right rotation. The scope affects subsequent rotations; All Pages rotates every page by the same amount relative to its own orientation. Under **Image → Replace Colors**, choose source/target colors and tolerance.
 5. Use **Save as PNG/PDF/EPS/PS** to export the adjusted result. Color replacement stores PDF/PS/EPS pages as raster images at the selected DPI. Without replacements, rotation and inversion of EPS/PS content remain vector-based.
 6. Choose **File → Create Video/Animation**, select a folder, and edit the frame list and output options. Multi-page EPS/PS files are expanded into consecutive frames automatically.
+
+New workflow controls:
+
+- **Image → Undo/Redo Image Adjustment** handles rotation, inversion, replacements, and resets. Rotating All Pages is one undoable operation.
+- **Image → Replace Colors**: add a mapping, edit its color values, use Choose for RGB input, or change tolerance. The right-hand preview updates automatically. Hold View Original temporarily shows original colors while retaining page rotation.
+- The video dialog shows frame count, FPS, and estimated duration. Preview uses the selected frames, order, crop, and colors. It is an approximate low-resolution rehearsal; the final export uses the selected canvas resolution.
+- **View → Compare Side by Side** (`Ctrl+Shift+C`): the left reference is locked by default. Choose a right-hand image or let it follow the main window. Disable Link Zoom and Pan for independent navigation. Linked views use the same zoom percentage and relative page position. Choosing comparison images does not change the main window's source.
+- **Help → Diagnostics** shows a report you can inspect and copy. Error dialogs also provide details. Diagnostics are kept for the current session only and may include local paths; review before sharing.
 
 Adjustments exist only in the current session and never modify the source. Live refresh retains the current file's adjustment state.
 
@@ -80,6 +95,8 @@ Choose **Help → Check for Updates** manually. There is no background check, au
 The development stack is Python 3.11+, PyQt6, Ghostscript, and PyInstaller. After installing the requirements, run `python main.py example.eps`. Use `build.bat` for a one-file Windows EXE and `build_unix.sh` on Linux/macOS. Pushing an `eps-live-viewer-v*` tag triggers native Windows, Linux, macOS Apple Silicon, and macOS Intel builds and creates a GitHub Release.
 
 Color processing uses only Qt/Python and adds no image or PDF dependency. Ghostscript remains the only EPS/PostScript interpreter.
+
+Video rehearsal uses Qt timers and temporary PNG frames, not QtMultimedia. At most eight preview frames are held in memory; closing the dialog removes its temporary files. Color work is cancellable and obsolete results are discarded. Undo history stores small adjustment snapshots, not copies of source documents.
 
 </details>
 

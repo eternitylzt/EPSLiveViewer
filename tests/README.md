@@ -1,5 +1,12 @@
 # Packaging regression check
 
+For the local 2.1.0 upgrade, `test_upgrade_workflows.py` verifies per-file bounded
+undo/redo and live-refresh history, responsive color previews and cancellation,
+discarding obsolete tile color jobs, video rehearsal order/seeking/duration/cache
+cleanup, pinned and linked comparison panes, and manual diagnostic reports.
+It uses generated PNG fixtures and isolated settings and does not need Ghostscript.
+The existing EPS smoke test also checks undo/redo of an all-page rotation.
+
 Run `python tests/package_smoke.py path/to/multipage.eps` in the development environment.
 The test copies the source into a temporary directory and uses isolated settings.
 It expects at least two pages and an installed Ghostscript.

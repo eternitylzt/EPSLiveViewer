@@ -51,7 +51,9 @@ from config import (
     filename_sort_key,
 )
 from color_dialog import ColorReplacementDialog
+from comparison import ComparisonDialog
 from dialogs import PngExportDialog, SettingsDialog
+from diagnostics import Diagnostics, DiagnosticsDialog
 from eps_renderer import (
     EpsRenderCancelledError,
     EpsRenderError,
@@ -61,7 +63,7 @@ from eps_renderer import (
 )
 from file_monitor import EpsFileMonitor
 from i18n import set_language, tr
-from image_transforms import DocumentTransforms, TransformSnapshot
+from image_transforms import DocumentTransforms, TransformSnapshot, TransformHistory
 from update_checker import (
     ReleaseInfo,
     check_latest_release,
@@ -71,6 +73,7 @@ from video_creator import (
     VideoExportCancelled,
     VideoExporter,
     VideoExportRequest,
+    VideoFrameSource,
 )
 from video_dialog import VideoCreationDialog
 from vector_preview import VectorGraphicsView, VectorPreviewError
@@ -296,6 +299,7 @@ class MainWindow(QMainWindow):
     """Application shell coordinating source monitoring and vector preview."""
 
     MAX_RECENT_FILES = 10
+    document_state_changed = pyqtSignal(object, object, int)
 
     def __init__(self, config_manager: ConfigManager) -> None:
         super().__init__()
@@ -331,6 +335,9 @@ class MainWindow(QMainWindow):
         self._current_page_index = 0
         self._page_count = 0
         self._document_transforms: dict[Path, DocumentTransforms] = {}
+        self._histories: dict[Path, TransformHistory] = {}
+        self._diagnostics = Diagnostics()
+        self._comparison = None
         self._settings = QSettings()
 
         self.setWindowTitle(APP_NAME)
@@ -471,11 +478,26 @@ class MainWindow(QMainWindow):
         self._reset_transforms_action.setEnabled(False)
         self._reset_transforms_action.triggered.connect(self._reset_transforms)
 
+        self._undo_action = QAction("撤销图像调整", self)
+        self._undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self._undo_action.triggered.connect(lambda: self._restore_history(False))
+        self._redo_action = QAction("重做图像调整", self)
+        self._redo_action.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
+        self._redo_action.triggered.connect(lambda: self._restore_history(True))
+        self._undo_action.setEnabled(False)
+        self._redo_action.setEnabled(False)
+
         self._about_action = QAction("关于(&A)", self)
         self._about_action.triggered.connect(self._show_about)
 
         self._check_updates_action = QAction("检查更新(&U)…", self)
         self._check_updates_action.triggered.connect(self._check_for_updates)
+        self._diagnostics_action = QAction("诊断信息…", self)
+        self._diagnostics_action.triggered.connect(self._show_diagnostics)
+        self._compare_action = QAction("并排比较…", self)
+        self._compare_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        self._compare_action.setEnabled(False)
+        self._compare_action.triggered.connect(self._show_comparison)
 
     def _create_menus(self) -> None:
         menu_bar = self.menuBar()
@@ -495,6 +517,8 @@ class MainWindow(QMainWindow):
         self._file_menu.addAction(self._exit_action)
 
         self._view_menu = menu_bar.addMenu("查看(&V)")
+        self._view_menu.addAction(self._compare_action)
+        self._view_menu.addSeparator()
         self._view_menu.addAction(self._previous_file_action)
         self._view_menu.addAction(self._next_file_action)
         self._view_menu.addSeparator()
@@ -508,6 +532,9 @@ class MainWindow(QMainWindow):
         self._view_menu.addAction(self._auto_refresh_action)
 
         self._image_menu = menu_bar.addMenu("图像(&I)")
+        self._image_menu.addAction(self._undo_action)
+        self._image_menu.addAction(self._redo_action)
+        self._image_menu.addSeparator()
         self._rotation_scope_menu = self._image_menu.addMenu("旋转范围")
         self._rotation_scope_menu.addAction(self._rotate_current_action)
         self._rotation_scope_menu.addAction(self._rotate_all_action)
@@ -520,6 +547,7 @@ class MainWindow(QMainWindow):
 
         self._help_menu = menu_bar.addMenu("帮助(&H)")
         self._help_menu.addAction(self._check_updates_action)
+        self._help_menu.addAction(self._diagnostics_action)
         self._help_menu.addSeparator()
         self._help_menu.addAction(self._about_action)
 
@@ -709,6 +737,7 @@ class MainWindow(QMainWindow):
             self._invert_colors_action,
             self._replace_colors_action,
             self._reset_transforms_action,
+            self._compare_action,
         ):
             action.setEnabled(enabled)
 
@@ -722,11 +751,59 @@ class MainWindow(QMainWindow):
             state.inverted,
             state.replacements,
         )
+        self._update_history_actions()
+        if self._current_file is not None and self._page_count:
+            self.document_state_changed.emit(self._current_file, state.snapshot(), self._current_page_index)
+
+    def _update_history_actions(self):
+        history = self._histories.get(self._current_file)
+        self._undo_action.setEnabled(bool(history and history.undo_states))
+        self._redo_action.setEnabled(bool(history and history.redo_states))
+
+    def _record_adjustment(self, before):
+        if self._current_file is not None:
+            history = self._histories.setdefault(self._current_file, TransformHistory())
+            history.record(before, self._current_transforms().snapshot())
+        self._apply_current_transforms()
+
+    def _restore_history(self, redo):
+        history = self._histories.get(self._current_file)
+        if history is None:
+            return
+        state = self._current_transforms()
+        state.restore((history.redo if redo else history.undo)(state.snapshot()))
+        self._apply_current_transforms()
+
+    def _show_comparison(self):
+        if self._current_file is None or not self._page_count:
+            return
+        if self._comparison is not None:
+            self._comparison.show()
+            self._comparison.raise_()
+            self._comparison.activateWindow()
+            return
+        dialog = ComparisonDialog(
+            self._current_file, self._current_transforms().snapshot(), self._current_page_index,
+            self._config.ghostscript_path,
+            {path: state.snapshot() for path, state in self._document_transforms.items()},
+            self._config.background_mode, self._config.background_color, self._config.wheel_action, self,
+        )
+        self._comparison = dialog
+        self.document_state_changed.connect(dialog.follow_current)
+        dialog.error.connect(lambda error: self._diagnostics.record("Comparison", error))
+        dialog.finished.connect(lambda _result: self._comparison_finished(dialog))
+        dialog.show()
+
+    def _comparison_finished(self, dialog):
+        self.document_state_changed.disconnect(dialog.follow_current)
+        if self._comparison is dialog:
+            self._comparison = None
 
     def _rotate_page(self, degrees: int) -> None:
         if self._current_file is None or self._page_count < 1:
             return
         state = self._current_transforms()
+        before = state.snapshot()
         if self._rotate_all_action.isChecked():
             for page in range(1, self._page_count + 1):
                 state.rotate_page(page, degrees)
@@ -734,7 +811,7 @@ class MainWindow(QMainWindow):
         else:
             rotation = state.rotate_page(self._current_page_index + 1, degrees)
             message = tr("当前页已旋转至 {degrees}°", degrees=rotation)
-        self._apply_current_transforms()
+        self._record_adjustment(before)
         self.statusBar().showMessage(message, 2500)
 
     def _rotation_scope_changed(self, _action: QAction) -> None:
@@ -751,27 +828,38 @@ class MainWindow(QMainWindow):
     def _set_inverted(self, inverted: bool) -> None:
         if self._current_file is None:
             return
-        self._current_transforms().inverted = bool(inverted)
-        self._apply_current_transforms()
+        state = self._current_transforms()
+        before = state.snapshot()
+        state.inverted = bool(inverted)
+        self._record_adjustment(before)
 
     def _show_color_replacements(self) -> None:
         if self._current_file is None:
             return
         state = self._current_transforms()
-        dialog = ColorReplacementDialog(state.replacements, self)
+        before = state.snapshot()
+        frame = VideoFrameSource(self._current_file, self._current_page_index + 1)
+        exporter = VideoExporter(self._renderer)
+        dialog = ColorReplacementDialog(
+            state.replacements, self,
+            preview_loader=lambda cancel: exporter.read_original(frame, 72, cancel, 900),
+            inverted=state.inverted, rotation=state.rotation_for(frame.page_number),
+        )
         try:
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
             state.replacements = dialog.replacements()
         finally:
+            dialog.close()
             dialog.deleteLater()
-        self._apply_current_transforms()
+        self._record_adjustment(before)
 
     def _reset_transforms(self) -> None:
         if self._current_file is None:
             return
+        before = self._current_transforms().snapshot()
         self._document_transforms[self._current_file] = DocumentTransforms()
-        self._apply_current_transforms()
+        self._record_adjustment(before)
         self.statusBar().showMessage(tr("已重置当前文件的图像调整"), 2500)
 
     def _recent_files(self) -> list[str]:
@@ -1385,7 +1473,11 @@ class MainWindow(QMainWindow):
             (self._invert_colors_action, "反转颜色(&I)"),
             (self._replace_colors_action, "替换颜色(&C)…"),
             (self._reset_transforms_action, "重置图像调整(&T)"),
+            (self._undo_action, "撤销图像调整"),
+            (self._redo_action, "重做图像调整"),
             (self._check_updates_action, "检查更新(&U)…"),
+            (self._diagnostics_action, "诊断信息…"),
+            (self._compare_action, "并排比较…"),
             (self._about_action, "关于(&A)"),
         )
         for action, source in action_texts:
@@ -1521,6 +1613,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_vector_render_error(self, message: str) -> None:
+        self._diagnostics.record("Preview", message, self._diagnostic_context())
         self.statusBar().showMessage(message, 6000)
 
     def _show_about(self) -> None:
@@ -1539,6 +1632,8 @@ class MainWindow(QMainWindow):
             f"<li>{tr('左右方向键切换相邻文件，上下方向键切换多页文档。')}</li>"
             f"<li>{tr('滚轮行为可在设置中选择；Ctrl+滚轮始终可缩放。')}</li>"
             f"<li>{tr('可旋转、反转或替换颜色，并将调整结果导出为 PNG/PDF/PS/EPS。')}</li>"
+            f"<li>{tr('Ctrl+Z 撤销图像调整；调色窗口提供实时预览和原图对照。')}</li>"
+            f"<li>{tr('可并排锁定参考图比较；制作视频前可试播并查看预计时长。')}</li>"
             f"<li>{tr('多页文档可逐页导出 PNG，或将所有页面和相邻图片制作成 MP4/GIF。')}</li></ul>"
             f"<h3>{tr('作者')}</h3>"
             "<p>Zhentong Li<br>eternitylzt@gmail.com</p>"
@@ -1631,7 +1726,36 @@ class MainWindow(QMainWindow):
             self._check_updates_action.setEnabled(True)
 
     def show_nonfatal_error(self, title: str, message: str) -> None:
-        QMessageBox.warning(self, title, message)
+        context = self._diagnostic_context()
+        self._diagnostics.record(title, message, context)
+        box = QMessageBox(QMessageBox.Icon.Warning, title, message,
+                          QMessageBox.StandardButton.Close, self)
+        box.setDetailedText(self._diagnostics.report(context, self._renderer.ghostscript_path))
+        box.exec()
+
+    def _diagnostic_context(self):
+        state = self._current_transforms().snapshot()
+        return {"file": str(self._current_file or ""),
+                "page": self._current_page_index + 1, "page_count": self._page_count,
+                "preview_generation": self._generation,
+                "rotation": state.rotation_for(self._current_page_index + 1),
+                "page_rotations": state.page_rotations, "inverted": state.inverted,
+                "replacements": [vars(mapping) for mapping in state.replacements],
+                "auto_refresh": self._config.auto_refresh,
+                "export_dpi": self._config.export_dpi}
+
+    def _show_diagnostics(self):
+        dialog = DiagnosticsDialog(self._diagnostics, self._diagnostic_context(),
+                                   self._renderer.ghostscript_path, self)
+        try:
+            dialog.exec()
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+
+    def report_unhandled_exception(self, error):
+        self._diagnostics.record("Unhandled exception", error, self._diagnostic_context())
+        self.show_nonfatal_error(tr("操作未完成"), str(error))
 
     # ----- Drag/drop and shutdown -----------------------------------------
 
@@ -1658,6 +1782,9 @@ class MainWindow(QMainWindow):
         event.ignore()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        if self._comparison is not None and not self._comparison.close():
+            event.ignore()
+            return
         self._closing = True
         self._monitor.clear()
         self._pending_preview_request = None
@@ -1694,7 +1821,10 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-        self._view.clear_document()
+        if not self._view.close():
+            self._closing = False
+            event.ignore()
+            return
         self._renderer.cache.release(self._current_pdf)
         self._renderer.cache.cleanup()
         super().closeEvent(event)

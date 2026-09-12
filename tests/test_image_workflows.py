@@ -40,12 +40,12 @@ class ImageWorkflowTests(unittest.TestCase):
             first = ColorReplacement("#000000", "#FFFFFF", 8)
             second = ColorReplacement("#888888", "#00FF00", 12)
             dialog = ColorReplacementDialog(())
-            with patch.object(dialog, "_choose_replacement", return_value=first):
-                dialog._add()
+            dialog._add()
             self.assertEqual(dialog.replacements(), (first,))
             dialog._list.setCurrentRow(0)
-            with patch.object(dialog, "_choose_replacement", return_value=second):
-                dialog._edit_selected()
+            dialog._source_edit.setText(second.source)
+            dialog._target_edit.setText(second.target)
+            dialog._tolerance.setValue(second.tolerance)
             dialog.accept()
             self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
             reopened = ColorReplacementDialog(dialog.replacements())

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, pyqtSignal
+from PyQt6.QtCore import QEvent, QTimer, pyqtSignal
 from PyQt6.QtGui import QFileOpenEvent, QIcon
 from PyQt6.QtWidgets import QApplication
 
@@ -62,6 +62,25 @@ def main() -> int:
         app.setWindowIcon(QIcon(str(icon_path)))
 
     window = MainWindow(ConfigManager())
+    previous_hook = sys.excepthook
+    reporting = False
+
+    def exception_hook(kind, error, tb):
+        nonlocal reporting
+        if reporting or not isinstance(error, Exception):
+            previous_hook(kind, error, tb)
+            return
+        reporting = True
+
+        def report():
+            nonlocal reporting
+            try:
+                window.report_unhandled_exception(error.with_traceback(tb))
+            finally:
+                reporting = False
+        QTimer.singleShot(0, report)
+
+    sys.excepthook = exception_hook
     app.file_open_requested.connect(window.open_eps)
     window.show()
 
@@ -81,7 +100,10 @@ def main() -> int:
             window.show_nonfatal_error(
                 tr("打开失败"), tr("找不到文件：\n{path}", path=candidate)
             )
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        sys.excepthook = previous_hook
 
 
 if __name__ == "__main__":
