@@ -67,8 +67,11 @@ class UpgradeWorkflowTests(unittest.TestCase):
 
     def open(self, source):
         self.window.open_eps(source)
+        # Assert the user-visible ready state. QThread's finished/deleteLater
+        # cleanup may be delivered later by headless platform plugins.
         wait_for(lambda: self.window._current_file == source and self.window._page_count == 1
-                 and self.window._preview_thread is None)
+                 and self.window._current_pdf is not None
+                 and self.window._view.has_document())
 
     def test_undo_redo_is_per_file_and_preserves_live_refresh(self):
         self.open(self.first)
