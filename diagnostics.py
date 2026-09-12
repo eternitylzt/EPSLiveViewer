@@ -41,7 +41,10 @@ class Diagnostics:
                 version = str(error)
         data = {
             "application": f"EPS Live Viewer {APP_VERSION}",
-            "system": platform.platform(), "architecture": platform.machine(),
+            # platform.platform() may start an external command on Unix. Keep the
+            # non-probing report side-effect free on every supported platform.
+            "system": f"{platform.system()} {platform.release()}".strip(),
+            "architecture": platform.machine(),
             "python": platform.python_version(), "frozen": bool(getattr(sys, "frozen", False)),
             "PyQt": PYQT_VERSION_STR, "Qt": qVersion(),
             "Ghostscript": {"path": str(ghostscript or ""), "version": version},
