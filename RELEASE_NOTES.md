@@ -1,4 +1,28 @@
-# EPS Live Viewer 2.1.0
+# EPS Live Viewer 2.2.0
+
+## 2.2.0 中文
+
+- 工具栏可自定义；默认隐藏重新加载与旋转，默认背景改为白色。
+- 替换颜色窗口默认缩窄编辑区，支持拖动分隔栏。
+- 并排比较支持最大化、选择已打开标签页，以及默认比较当前多页文档的另一页。
+- 视频、裁剪与试播统一使用主预览的文档页面，修复多页 EPS 输出重复首帧和方向不一致；支持仅当前文件或筛选文件夹格式。
+- 保存编辑记录及关闭时保存提示；记录为源文件旁的 .epslive.json，源图像保持不变。
+- 新增文件信息、矢量文本拖选复制，以及可选的独立标签页和双击文件路由。
+- 未增加第三方运行依赖。
+
+## 2.2.0 English
+
+- Customizable toolbar; reload/rotation hidden by default and white default background.
+- Resizable color-editor split with a narrower initial editor pane.
+- Maximizable comparison with open-tab choices and another-page default for multi-page documents.
+- Video, crop, and rehearsal use the same document pages as the main preview, fixing repeated EPS frames and orientation mismatches. Current-document and filtered-folder input choices are available.
+- Save edits and prompt on close. Neighboring .epslive.json records preserve the source image.
+- File information, vector text selection/copying, optional independent tabs, and desktop double-click routing.
+- No new third-party runtime dependencies.
+
+---
+
+Previous 2.1.0 improvements:
 
 ## 中文
 

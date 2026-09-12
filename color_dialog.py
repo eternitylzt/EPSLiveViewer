@@ -7,12 +7,12 @@ from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtWidgets import (
     QColorDialog, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton,
-    QSpinBox, QVBoxLayout, QWidget,
+    QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from background_tasks import TaskRunner
 from i18n import tr
-from image_transforms import ColorReplacement, apply_color_adjustments, rotate_image
+from image_transforms import ColorReplacement, adjusted_color, apply_color_adjustments, rotate_image
 from preview_widgets import ImagePreview
 
 
@@ -20,13 +20,16 @@ class ColorReplacementDialog(QDialog):
     MAX_REPLACEMENTS = 16
 
     def __init__(self, replacements, parent: QWidget | None = None, *,
-                 preview_loader=None, inverted=False, rotation=0):
+                 preview_loader=None, inverted=False, rotation=0,
+                 background_mode="white", background_color="#FFFFFF"):
         super().__init__(parent)
         self.setWindowTitle(tr("替换颜色"))
         self.resize(960 if preview_loader else 620, 560)
         self._runner = TaskRunner(self)
         self._loader = preview_loader
         self._inverted, self._rotation = inverted, rotation
+        self._background_mode = background_mode
+        self._background_color = "#FFFFFF" if background_mode == "white" else background_color
         self._raw = QImage()
         self._adjusted = QImage()
         self._revision = 0
@@ -36,8 +39,13 @@ class ColorReplacementDialog(QDialog):
         note = QLabel(tr("选择列表中的颜色即可编辑；更改会实时预览，确定后应用，取消则保留原设置。颜色替换在反色之后执行。"))
         note.setWordWrap(True)
         root.addWidget(note)
-        body = QHBoxLayout()
-        left = QVBoxLayout()
+        body = QSplitter(Qt.Orientation.Horizontal)
+        body.setChildrenCollapsible(False)
+        self._splitter = body
+        left_widget = QWidget()
+        left_widget.setMinimumWidth(260)
+        left = QVBoxLayout(left_widget)
+        left.setContentsMargins(0, 0, 0, 0)
         self._list = QListWidget()
         self._list.currentItemChanged.connect(self._selection_changed)
         left.addWidget(self._list, 1)
@@ -69,22 +77,27 @@ class ColorReplacementDialog(QDialog):
         self._tolerance.valueChanged.connect(self._update_mapping)
         form.addRow(tr("颜色容差"), self._tolerance)
         left.addLayout(form)
-        body.addLayout(left, 1)
+        body.addWidget(left_widget)
 
-        right = QVBoxLayout()
+        right_widget = QWidget()
+        right = QVBoxLayout(right_widget)
+        right.setContentsMargins(0, 0, 0, 0)
         self._image_preview = ImagePreview()
         right.addWidget(self._image_preview, 1)
         self._original_button = QPushButton(tr("按住查看原图"))
         self._original_button.setToolTip(tr("显示原始配色，保留当前页面旋转。"))
-        self._original_button.pressed.connect(lambda: self._image_preview.set_image(self._raw))
-        self._original_button.released.connect(lambda: self._image_preview.set_image(self._adjusted))
+        self._original_button.pressed.connect(lambda: self._display_preview(True))
+        self._original_button.released.connect(lambda: self._display_preview(False))
         right.addWidget(self._original_button)
         if preview_loader is not None:
-            body.addLayout(right, 1)
+            body.addWidget(right_widget)
+            body.setStretchFactor(0, 0)
+            body.setStretchFactor(1, 1)
+            body.setSizes([300, 640])
         else:
             self._image_preview.hide()
             self._original_button.hide()
-        root.addLayout(body, 1)
+        root.addWidget(body, 1)
         self._status = QLabel()
         self._status.setWordWrap(True)
         root.addWidget(self._status)
@@ -230,8 +243,15 @@ class ColorReplacementDialog(QDialog):
             return
         self._adjusted = image
         if not self._original_button.isDown():
-            self._image_preview.set_image(image)
+            self._display_preview(False)
         self._status.setText(tr("预览已更新；确定后应用到当前文件。"))
+
+    def _display_preview(self, original):
+        color = QColor(self._background_color)
+        if not original:
+            color = adjusted_color(color, self._inverted, self.replacements())
+        self._image_preview.set_background(self._background_mode, color.name())
+        self._image_preview.set_image(self._raw if original else self._adjusted)
 
     def done(self, result):
         self._timer.stop()

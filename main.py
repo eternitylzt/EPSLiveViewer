@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication
 
 from config import APP_VERSION, ConfigManager
 from i18n import tr
-from viewer import MainWindow
+from workspace import DesktopController, OpenRequestServer
 
 
 class EpsApplication(QApplication):
@@ -61,7 +61,16 @@ def main() -> int:
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
 
-    window = MainWindow(ConfigManager())
+    controller = DesktopController(ConfigManager())
+    startup_arguments = [
+        str(Path(argument).expanduser().resolve())
+        for argument in sys.argv[1:] if not argument.startswith("-psn_")
+    ]
+    router = OpenRequestServer(controller.open_files)
+    if startup_arguments and router.forward(startup_arguments):
+        return 0
+    if not router.listen() and startup_arguments and router.forward(startup_arguments):
+        return 0
     previous_hook = sys.excepthook
     reporting = False
 
@@ -75,34 +84,22 @@ def main() -> int:
         def report():
             nonlocal reporting
             try:
-                window.report_unhandled_exception(error.with_traceback(tb))
+                active = controller.active_window
+                if active is not None:
+                    active.tabs.currentWidget().report_unhandled_exception(error.with_traceback(tb))
+                else:
+                    previous_hook(kind, error, tb)
             finally:
                 reporting = False
         QTimer.singleShot(0, report)
 
     sys.excepthook = exception_hook
-    app.file_open_requested.connect(window.open_eps)
-    window.show()
-
-    pending_file_opens = app.take_pending_file_opens()
-    if pending_file_opens:
-        window.open_eps(pending_file_opens[-1])
-
-    # Explorer/Finder and a command prompt can pass a supported path as argument one.
-    startup_arguments = [
-        argument for argument in sys.argv[1:] if not argument.startswith("-psn_")
-    ]
-    if startup_arguments and not pending_file_opens:
-        candidate = Path(startup_arguments[0])
-        if candidate.is_file():
-            window.open_eps(candidate)
-        else:
-            window.show_nonfatal_error(
-                tr("打开失败"), tr("找不到文件：\n{path}", path=candidate)
-            )
+    app.file_open_requested.connect(lambda _filename: controller.open_files(app.take_pending_file_opens()))
+    controller.open_files(app.take_pending_file_opens() or startup_arguments)
     try:
         return app.exec()
     finally:
+        router.close()
         sys.excepthook = previous_hook
 
 

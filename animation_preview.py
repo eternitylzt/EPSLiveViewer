@@ -131,6 +131,8 @@ class AnimationPreviewDialog(QDialog):
                                   current=index + 1, total=len(self._paths),
                                   seconds=index / self._request.fps,
                                   duration=len(self._paths) / self._request.fps))
+        frame = self._request.sources[index]
+        self._position.setText(self._position.text() + " · " + frame.display_name)
 
     def _seek(self, index):
         self._anchor_index, self._anchor_time = index, time.monotonic()

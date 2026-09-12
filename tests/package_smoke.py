@@ -325,6 +325,7 @@ def run():
                 settings.close()
             print("PASS: multipage preview/PNG/video, rotation, inversion, color replacement, EPS/PS/PDF export, PNG/JPG opening, zoom, navigation, drop, live refresh, MP4/GIF, crop, cancellation, languages, update menu", flush=True)
         finally:
+            window._discard_on_close = True
             window.close()
             app.processEvents()
 

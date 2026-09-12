@@ -119,6 +119,11 @@ class SettingsDialog(QDialog):
         )
         display_form.addRow(tr("鼠标滚轮："), self._wheel_action_combo)
 
+        self._open_mode_combo = QComboBox()
+        self._open_mode_combo.addItem(tr("新窗口（默认）"), "window")
+        self._open_mode_combo.addItem(tr("同一窗口的新标签页"), "tabs")
+        display_form.addRow(tr("打开文件："), self._open_mode_combo)
+
         self._language_combo = QComboBox()
         self._language_combo.addItem("简体中文", "zh_CN")
         self._language_combo.addItem("English", "en")
@@ -162,6 +167,7 @@ class SettingsDialog(QDialog):
         language_index = self._language_combo.findData(self._initial.language)
         self._language_combo.setCurrentIndex(max(0, language_index))
         self._export_dpi_spin.setValue(self._initial.export_dpi)
+        self._open_mode_combo.setCurrentIndex(self._open_mode_combo.findData(self._initial.open_mode))
         self._update_color_button()
         self._sync_enabled_states()
 
@@ -228,6 +234,8 @@ class SettingsDialog(QDialog):
                 "export_dpi": self._export_dpi_spin.value(),
                 "wheel_action": str(self._wheel_action_combo.currentData()),
                 "language": str(self._language_combo.currentData()),
+                "open_mode": str(self._open_mode_combo.currentData()),
+                "toolbar_tools": self._initial.toolbar_tools,
             }
         )
 

@@ -1,5 +1,11 @@
 # Packaging regression check
 
+For local 2.2.0, `test_document_workspace.py` checks independent tab edits and
+shortcuts, external-process open requests, sidecar round trips, close cancellation,
+multi-page comparison, text extraction, and actual decoded MP4 frame colors.
+When available it compares all pages of the user's `20241001.eps` against the
+main PDF preview pixel-for-pixel. Temporary copies protect the original.
+
 For the local 2.1.0 upgrade, `test_upgrade_workflows.py` verifies per-file bounded
 undo/redo and live-refresh history, responsive color previews and cancellation,
 discarding obsolete tile color jobs, video rehearsal order/seeking/duration/cache

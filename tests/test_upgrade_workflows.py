@@ -1,7 +1,6 @@
 """User-facing regression checks for the local 2.1 workflow improvements."""
 
 import json
-import os
 import sys
 import tempfile
 import time
@@ -26,10 +25,6 @@ from viewer import MainWindow
 
 
 APP = QApplication.instance() or QApplication([])
-OFFSCREEN_BACKGROUND_PDF = (
-    sys.platform in {"win32", "darwin"}
-    and os.environ.get("QT_QPA_PLATFORM", "").lower() == "offscreen"
-)
 
 
 def wait_for(predicate, seconds=20):
@@ -45,7 +40,7 @@ def wait_for(predicate, seconds=20):
 class UpgradeWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory(prefix="eps_upgrade_test_")
-        self.root = Path(self.folder.name)
+        self.root = Path(self.folder.name).resolve()
         APP.setOrganizationName("EPSLiveViewerUpgradeTests")
         APP.setApplicationName("Upgrade")
         QSettings.setDefaultFormat(QSettings.Format.IniFormat)
@@ -58,6 +53,7 @@ class UpgradeWorkflowTests(unittest.TestCase):
         self.second = self.make_image("02.png", "blue")
 
     def tearDown(self):
+        self.window._discard_on_close = True
         self.window.close()
         APP.processEvents()
         APP.sendPostedEvents(None, QEvent.Type.DeferredDelete)
@@ -72,16 +68,12 @@ class UpgradeWorkflowTests(unittest.TestCase):
 
     def open(self, source):
         self.window.open_eps(source)
-        # Assert the user-visible ready state. QThread's finished/deleteLater
-        # cleanup may be delivered later by headless platform plugins.
-        wait_for(lambda: self.window._current_file == source and self.window._page_count == 1
+        # Match the canonical path used by the viewer (macOS /var -> /private/var,
+        # and Windows temporary-directory aliases).
+        wait_for(lambda: self.window._current_file == source.resolve() and self.window._page_count == 1
                  and self.window._current_pdf is not None
                  and self.window._view.has_document())
 
-    @unittest.skipIf(
-        OFFSCREEN_BACKGROUND_PDF,
-        "Windows/macOS offscreen plugins do not complete background QPdfWriter jobs",
-    )
     def test_undo_redo_is_per_file_and_preserves_live_refresh(self):
         self.open(self.first)
         self.window._invert_colors_action.setChecked(True)
@@ -151,10 +143,6 @@ class UpgradeWorkflowTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
 
-    @unittest.skipIf(
-        OFFSCREEN_BACKGROUND_PDF,
-        "Windows/macOS offscreen plugins do not complete background QPdfWriter jobs",
-    )
     def test_background_tiles_discard_old_color_jobs(self):
         self.open(self.first)
         state = self.window._current_transforms()
@@ -215,10 +203,6 @@ class UpgradeWorkflowTests(unittest.TestCase):
         sequence.close()
         sequence.deleteLater()
 
-    @unittest.skipIf(
-        OFFSCREEN_BACKGROUND_PDF,
-        "Windows/macOS offscreen plugins do not complete background QPdfWriter jobs",
-    )
     def test_comparison_link_lock_follow_and_close(self):
         self.open(self.first)
         self.window._show_comparison()

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton,
+    QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QPushButton,
     QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -158,6 +158,8 @@ class ComparisonDialog(QDialog):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle(tr("并排比较"))
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, True)
         self.resize(1200, 760)
         self._renderer = EpsRenderer(ghostscript_path)
         self._snapshots = dict(snapshots)
@@ -175,6 +177,10 @@ class ComparisonDialog(QDialog):
             controls.addWidget(checkbox)
         controls.addStretch(1)
         root.addLayout(controls)
+        self._candidates = QComboBox()
+        self._candidates.addItem(tr("右侧对比：选择已打开的图片或浏览文件"), None)
+        self._candidates.activated.connect(self._candidate_chosen)
+        root.addWidget(self._candidates)
         hint = QLabel(tr("选择右侧图片，或在主窗口切换文件；左侧保留参考图。"))
         hint.setWordWrap(True)
         root.addWidget(hint)
@@ -195,12 +201,40 @@ class ComparisonDialog(QDialog):
         self.left.set_source(source, transforms, page)
         self.right.set_source(source, transforms, page)
 
+    def set_candidates(self, documents, page_count):
+        self._candidates.clear()
+        self._candidates.addItem(tr("右侧对比：选择已打开的图片或浏览文件"), None)
+        if page_count > 1:
+            source, transforms = self.left.source, self.left.transforms
+            for page in range(page_count):
+                self._candidates.addItem(tr("{name}（第 {page} 页）", name=source.name, page=page + 1),
+                                         (source, transforms, page))
+            other = (self.left._wanted_page + 1) % page_count
+            self._follow.setChecked(False)
+            self.right.set_source(source, transforms, other)
+            self._candidates.setCurrentIndex(other + 1)
+        for name, source, transforms, page in documents:
+            self._candidates.addItem(name, (source, transforms, page))
+        self._candidates.addItem(tr("浏览…"), "browse")
+
+    def _candidate_chosen(self, index):
+        selected = self._candidates.itemData(index)
+        if selected is None:
+            return
+        self._follow.setChecked(False)
+        if selected == "browse":
+            self._choose(self.right)
+        else:
+            self.right.set_source(*selected)
+
     def _choose(self, pane, path=None):
         if path is None:
             path, _filter = QFileDialog.getOpenFileName(
                 self, tr("打开图片文件"), str(pane.source.parent if pane.source else Path.home()),
                 tr("支持的图片 (*.eps *.EPS *.ps *.PS *.png *.PNG *.jpg *.JPG *.jpeg *.JPEG);;所有文件 (*.*)"))
         if path:
+            if pane is self.right:
+                self._follow.setChecked(False)
             source = Path(path).resolve()
             pane.set_source(source, self._snapshots.get(source, TransformSnapshot()))
 

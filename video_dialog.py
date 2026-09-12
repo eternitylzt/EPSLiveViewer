@@ -37,6 +37,7 @@ from i18n import tr
 from image_transforms import TransformSnapshot
 from video_creator import VideoExporter, VideoExportRequest, VideoFrameSource
 from animation_preview import AnimationPreviewDialog
+from document_state import load_state
 
 
 @dataclass(frozen=True)
@@ -62,10 +63,12 @@ class VideoCreationDialog(QDialog):
         renderer: EpsRenderer,
         transforms_by_source: dict[Path, TransformSnapshot] | None = None,
         parent: QWidget | None = None,
+        current_file: Path | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("制作视频"))
         self.setMinimumSize(860, 620)
+        self._current_file = current_file
         self.resize(980, 700)
         self._renderer = renderer
         self._transforms_by_source = {
@@ -89,6 +92,21 @@ class VideoCreationDialog(QDialog):
         browse_folder.clicked.connect(self._choose_folder)
         folder_row.addWidget(browse_folder)
         root.addLayout(folder_row)
+        source_row = QHBoxLayout()
+        self._scope_combo = QComboBox()
+        self._scope_combo.addItem(tr("文件夹内的图片"), "folder")
+        if current_file is not None:
+            self._scope_combo.addItem(tr("当前文件的全部页面"), "current")
+            if current_file.suffix.lower() in {".eps", ".ps"}:
+                self._scope_combo.setCurrentIndex(1)
+        source_row.addWidget(self._scope_combo)
+        self._format_filter = QComboBox()
+        for label, suffixes in (("EPS / PS / PNG / JPG", (".eps", ".ps", ".png", ".jpg", ".jpeg")),
+                                ("EPS / PS", (".eps", ".ps")), ("PNG / JPG", (".png", ".jpg", ".jpeg")),
+                                ("EPS", (".eps",)), ("PS", (".ps",)), ("PNG", (".png",)), ("JPG", (".jpg", ".jpeg"))):
+            self._format_filter.addItem(label, suffixes)
+        source_row.addWidget(self._format_filter)
+        root.addLayout(source_row)
 
         hint = QLabel(
             tr(
@@ -226,6 +244,8 @@ class VideoCreationDialog(QDialog):
         if not folder.is_dir():
             folder = Path.home()
         self._load_folder(folder)
+        self._scope_combo.currentIndexChanged.connect(lambda: self._load_folder(Path(self._folder_edit.text())))
+        self._format_filter.currentIndexChanged.connect(lambda: self._load_folder(Path(self._folder_edit.text())))
 
     @staticmethod
     def _new_list(allow_reorder: bool) -> QListWidget:
@@ -251,6 +271,9 @@ class VideoCreationDialog(QDialog):
             self._folder_edit.text() or str(Path.home()),
         )
         if chosen:
+            self._scope_combo.blockSignals(True)
+            self._scope_combo.setCurrentIndex(0)
+            self._scope_combo.blockSignals(False)
             self._load_folder(Path(chosen))
 
     def _load_folder(self, folder: Path) -> None:
@@ -267,12 +290,23 @@ class VideoCreationDialog(QDialog):
             QMessageBox.warning(self, tr("无法读取文件夹"), str(error))
             return
         self._folder_edit.setText(str(folder.resolve()))
+        if self._scope_combo.currentData() == "current":
+            files = [Path(self._current_file).resolve()]
+        else:
+            suffixes = self._format_filter.currentData()
+            files = [path for path in files if path.suffix.lower() in suffixes]
         self._included.clear()
         self._excluded.clear()
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             for path in files:
-                transforms = self._transforms_by_source.get(path, TransformSnapshot())
+                transforms = self._transforms_by_source.get(path)
+                if transforms is None:
+                    try:
+                        transforms = load_state(path)
+                    except (OSError, ValueError, TypeError, KeyError) as error:
+                        QMessageBox.warning(self, tr("无法读取编辑记录"), f"{path.name}\n{error}")
+                        transforms = TransformSnapshot()
                 page_count = 1
                 if path.suffix.lower() in {".eps", ".ps"}:
                     try:

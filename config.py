@@ -8,13 +8,13 @@ import re
 import shutil
 import sys
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 
 APP_NAME = "EPS Live Viewer"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 PROJECT_URL = "https://github.com/eternitylzt/EPSLiveViewer"
 BACKGROUND_MODES = ("transparent", "white", "custom")
 WHEEL_ACTIONS = ("zoom", "files", "pages")
@@ -79,11 +79,16 @@ class AppConfig:
     ghostscript_path: str = ""
     auto_refresh: bool = True
     refresh_interval: int = 500
-    background_mode: str = "transparent"
+    background_mode: str = "white"
     background_color: str = "#FFFFFF"
     export_dpi: int = 300
     wheel_action: str = "zoom"
     language: str = "zh_CN"
+    open_mode: str = "window"
+    toolbar_tools: list[str] = field(default_factory=lambda: [
+        "open", "previous_file", "next_file", "previous_page", "next_page",
+        "zoom_out", "zoom_in", "fit", "invert_colors", "save_png",
+    ])
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any]) -> "AppConfig":
@@ -128,6 +133,9 @@ class AppConfig:
             ),
             wheel_action=wheel_action,
             language=language,
+            open_mode="tabs" if raw.get("open_mode") == "tabs" else "window",
+            toolbar_tools=list(dict.fromkeys(str(x) for x in raw["toolbar_tools"]))
+            if isinstance(raw.get("toolbar_tools"), list) else defaults.toolbar_tools,
         )
 
 

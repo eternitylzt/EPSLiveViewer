@@ -2,11 +2,16 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-Current version: **2.1.0**.
+Current version: **2.2.0**.
 
 EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scientific plotting workflows. It live-previews EPS/PS files, opens PNG/JPG directly, and provides neighboring-file comparison, multi-page navigation, rotation, color inversion/replacement, export, and video creation in one interface.
 
 ## Main features
+
+- Customizable toolbar: reload and rotation are hidden by default. Use View → Customize Toolbar or right-click the toolbar. New configurations default to a white background; existing preferences are retained.
+- Independent tabs: Settings offers new windows (default) or tabs, including files opened by double-click. Each tab keeps its own view, edits, preferences, monitoring, and export jobs.
+- Save edits: Ctrl+S saves rotation and color adjustments. Closing unsaved edits prompts to save, discard, or cancel.
+- File information and text selection: inspect file/page details and select/copy text preserved in EPS/PS documents.
 
 - Vector EPS/PS preview: visible content is rerendered for the current zoom, keeping paths and text sharp.
 - PNG/JPG viewing: open, zoom, rotate, invert, and replace colors without Ghostscript.
@@ -43,9 +48,9 @@ Release packages do not require Python. Ghostscript is required to view or proce
 1. Choose **File → Open Image**, drop a supported file into the window, or pass its path on the command line.
 2. Scroll to zoom, drag to pan, double-click for 100%, or use the toolbar zoom/fit controls.
 3. Use the arrow keys to browse neighboring files and document pages. The status bar shows file position, page number, page size, zoom, and update time.
-4. Choose **Current Page Only** or **All Pages** from the toolbar dropdown or **Image → Rotation Scope**, then click left/right rotation. The scope affects subsequent rotations; All Pages rotates every page by the same amount relative to its own orientation. Under **Image → Replace Colors**, choose source/target colors and tolerance.
+4. Choose **Current Page Only** or **All Pages** under **Image → Rotation Scope**, then rotate left/right. You can add these tools to the toolbar. Under **Image → Replace Colors**, choose source/target colors and tolerance; drag the divider to resize the editor and preview.
 5. Use **Save as PNG/PDF/EPS/PS** to export the adjusted result. Color replacement stores PDF/PS/EPS pages as raster images at the selected DPI. Without replacements, rotation and inversion of EPS/PS content remain vector-based.
-6. Choose **File → Create Video/Animation**, select a folder, and edit the frame list and output options. Multi-page EPS/PS files are expanded into consecutive frames automatically.
+6. Choose **File → Create Video/Animation**. EPS/PS defaults to all pages of the current document; you can switch to a folder and filter formats. Edit the frame list and output options. Rehearsal identifies each file/page and uses the same pages and rotations as the main preview.
 
 New workflow controls:
 
@@ -55,7 +60,13 @@ New workflow controls:
 - **View → Compare Side by Side** (`Ctrl+Shift+C`): the left reference is locked by default. Choose a right-hand image or let it follow the main window. Disable Link Zoom and Pan for independent navigation. Linked views use the same zoom percentage and relative page position. Choosing comparison images does not change the main window's source.
 - **Help → Diagnostics** shows a report you can inspect and copy. Error dialogs also provide details. Diagnostics are kept for the current session only and may include local paths; review before sharing.
 
-Adjustments exist only in the current session and never modify the source. Live refresh retains the current file's adjustment state.
+**File → Save Edits** (Ctrl+S) stores rotations, inversion, and color replacements in a neighboring `original-filename.epslive.json` file, restored automatically when you reopen the image. Move the record together with the source. Use Save as PNG/PDF/EPS/PS for a standalone adjusted image. Live refresh retains current edits.
+
+**File → Settings → Open files in** chooses windows or tabs. Tabs have independent edits and settings, including when opening the same file twice. Changing settings does not change other existing tabs. Ctrl+W closes the current tab.
+
+Side-by-side comparison supports maximization. For multi-page documents the right pane initially shows the next page; the dropdown also offers other pages, open tabs, and Browse.
+
+**View → Select Text** enables drag selection; press Ctrl+C or use Copy Selected Text. Selection follows rotated pages. Disable the mode to resume drag-to-pan. Outlined glyphs and scanned images contain no selectable text; OCR is not included.
 
 Video crop previews and exported frames use the same rotation/color pipeline. Reopening the creation window does not rotate an existing preview again. MP4 uses H.264 Main / YUV420; odd dimensions are padded by just 1 pixel on the right or bottom, preserving the complete crop. GIF dimensions are unchanged.
 

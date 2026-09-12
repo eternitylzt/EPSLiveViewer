@@ -17,6 +17,11 @@ class ImagePreview(QWidget):
         painter.fillRect(8, 8, 8, 8, QColor("#DCDCDC"))
         painter.end()
         self._checker = QBrush(tile)
+        self._background = QBrush(QColor("#FFFFFF"))
+
+    def set_background(self, mode, color="#FFFFFF"):
+        self._background = self._checker if mode == "transparent" else QBrush(QColor(color))
+        self.update()
 
     def set_image(self, image):
         self._image = QImage(image)
@@ -29,7 +34,7 @@ class ImagePreview(QWidget):
             scale = min(self.width() / self._image.width(), self.height() / self._image.height())
             width, height = self._image.width() * scale, self._image.height() * scale
             target = QRectF((self.width() - width) / 2, (self.height() - height) / 2, width, height)
-            painter.fillRect(target, self._checker)
+            painter.fillRect(target, self._background)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             painter.drawImage(target, self._image)
         painter.end()

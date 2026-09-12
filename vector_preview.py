@@ -39,7 +39,7 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions, QPdfPageRenderer
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QStyleOptionGraphicsItem, QWidget
+from PyQt6.QtWidgets import QApplication, QGraphicsItem, QGraphicsScene, QGraphicsView, QStyleOptionGraphicsItem, QWidget
 from PyQt6 import sip
 
 from config import SUPPORTED_SOURCE_SUFFIXES
@@ -242,12 +242,15 @@ class VectorGraphicsView(QGraphicsView):
         self._active_context: _DocumentContext | None = None
         self._page_index = 0
         self._page_count = 0
+        self._text_mode = False
+        self._selection_start = None
+        self._selection = None
         self._contexts: dict[int, _DocumentContext] = {}
         self._queued: deque[_RenderRequest] = deque()
         self._queued_keys: set[TileKey] = set()
         self._in_flight = 0
         self._fit_mode = True
-        self._background_mode = "transparent"
+        self._background_mode = "white"
         self._background_color = QColor("#FFFFFF")
         self._wheel_action = "zoom"
         self._rotation = 0
@@ -445,6 +448,7 @@ class VectorGraphicsView(QGraphicsView):
         normalized page center; fit mode remains fit mode even if page geometry
         changes between source generations.
         """
+        self._selection = None
         if self._closed:
             raise VectorPreviewError(tr("预览窗口已关闭。"))
         path = Path(filename).resolve()
@@ -529,6 +533,7 @@ class VectorGraphicsView(QGraphicsView):
 
     def set_page(self, page_index: int) -> bool:
         """Display one page from the active vector PDF without reconversion."""
+        self._selection = None
         context = self._active_context
         if (
             context is None
@@ -644,6 +649,46 @@ class VectorGraphicsView(QGraphicsView):
             return
         super().mouseDoubleClickEvent(event)
 
+    def set_text_selection_mode(self, enabled):
+        self._text_mode = bool(enabled)
+        self._selection = None
+        self._selection_start = None
+        self.setDragMode(QGraphicsView.DragMode.NoDrag if enabled else QGraphicsView.DragMode.ScrollHandDrag)
+        self.viewport().setCursor(Qt.CursorShape.IBeamCursor if enabled else Qt.CursorShape.OpenHandCursor)
+        self.viewport().update()
+
+    def _page_point(self, position):
+        return self._page_item.mapFromScene(self.mapToScene(position.toPoint()))
+
+    def mousePressEvent(self, event):
+        if self._text_mode and self.has_document() and event.button() == Qt.MouseButton.LeftButton:
+            self._selection_start = self._page_point(event.position())
+            self._selection = None
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._text_mode and self.has_document() and self._selection_start is not None:
+            self._selection = self._active_context.document.getSelection(
+                self._page_index, self._selection_start, self._page_point(event.position()))
+            self.viewport().update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._text_mode and self._selection_start is not None:
+            self.mouseMoveEvent(event)
+            self._selection_start = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def copy_selected_text(self):
+        if self._selection is not None and self._selection.text():
+            QApplication.clipboard().setText(self._selection.text())
+
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         if self._fit_mode and self.has_document():
@@ -696,8 +741,15 @@ class VectorGraphicsView(QGraphicsView):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(self._page_item.sceneBoundingRect())
+        if self._selection is not None:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(40, 130, 240, 85))
+            for polygon in self._selection.bounds():
+                painter.drawPolygon(self._page_item.mapToScene(polygon))
 
     def clear_document(self) -> None:
+        self._selection = None
+        self._selection_start = None
         self._invalidate_colors()
         self._detail_timer.stop()
         self._queued.clear()

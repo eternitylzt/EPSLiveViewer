@@ -39,6 +39,8 @@ from PyQt6.QtWidgets import (
     QToolBar,
     QToolButton,
     QVBoxLayout,
+    QCheckBox,
+    QGridLayout,
 )
 
 from config import (
@@ -77,6 +79,7 @@ from video_creator import (
 )
 from video_dialog import VideoCreationDialog
 from vector_preview import VectorGraphicsView, VectorPreviewError
+from document_state import load_state, save_state, state_path
 
 
 @dataclass(frozen=True)
@@ -300,6 +303,7 @@ class MainWindow(QMainWindow):
 
     MAX_RECENT_FILES = 10
     document_state_changed = pyqtSignal(object, object, int)
+    caption_changed = pyqtSignal()
 
     def __init__(self, config_manager: ConfigManager) -> None:
         super().__init__()
@@ -338,6 +342,9 @@ class MainWindow(QMainWindow):
         self._histories: dict[Path, TransformHistory] = {}
         self._diagnostics = Diagnostics()
         self._comparison = None
+        self._saved_states = {}
+        self._discard_on_close = False
+        self._host = None
         self._settings = QSettings()
 
         self.setWindowTitle(APP_NAME)
@@ -356,7 +363,7 @@ class MainWindow(QMainWindow):
         self._view.page_changed.connect(self._on_page_changed)
         self._view.render_error.connect(self._on_vector_render_error)
         self._view.document_released.connect(self._renderer.cache.release)
-        self._view.source_dropped.connect(self.open_eps)
+        self._view.source_dropped.connect(self.request_open)
         self._view.file_navigation_requested.connect(self._navigate_sibling)
         self._view.page_navigation_requested.connect(self._navigate_page)
         self.setCentralWidget(self._view)
@@ -365,6 +372,7 @@ class MainWindow(QMainWindow):
         self._create_menus()
         self._create_toolbar()
         self._create_status_bar()
+        self._create_document_actions()
         self._retranslate_ui()
         self._monitor.set_enabled(self._config.auto_refresh)
 
@@ -564,30 +572,156 @@ class MainWindow(QMainWindow):
         self._next_file_action.setIcon(self.style().standardIcon(standard.SP_ArrowRight))
         self._previous_page_action.setIcon(self.style().standardIcon(standard.SP_ArrowUp))
         self._next_page_action.setIcon(self.style().standardIcon(standard.SP_ArrowDown))
-        for action in (
-            self._open_action,
-            self._reload_action,
-            self._previous_file_action,
-            self._next_file_action,
-            self._previous_page_action,
-            self._next_page_action,
-        ):
-            self._toolbar.addAction(action)
-        self._toolbar.addSeparator()
-        self._toolbar.addAction(self._zoom_out_action)
-        self._toolbar.addAction(self._zoom_in_action)
-        self._toolbar.addAction(self._fit_action)
-        self._toolbar.addSeparator()
         self._rotation_scope_button = QToolButton(self._toolbar)
         self._rotation_scope_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._rotation_scope_button.setMenu(self._rotation_scope_menu)
-        self._toolbar.addWidget(self._rotation_scope_button)
-        self._toolbar.addAction(self._rotate_left_action)
-        self._toolbar.addAction(self._rotate_right_action)
-        self._toolbar.addAction(self._invert_colors_action)
-        self._toolbar.addSeparator()
-        self._toolbar.addAction(self._save_png_action)
+        self._rotation_toolbar_action = self._toolbar.addWidget(self._rotation_scope_button)
+        self._toolbar.removeAction(self._rotation_toolbar_action)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self._toolbar)
+
+    def _create_document_actions(self):
+        self._save_edits_action = QAction(self)
+        self._save_edits_action.setShortcut(QKeySequence.StandardKey.Save)
+        self._save_edits_action.setEnabled(False)
+        self._save_edits_action.triggered.connect(lambda: self.save_edits())
+        self._file_info_action = QAction(self)
+        self._file_info_action.setEnabled(False)
+        self._file_info_action.triggered.connect(self._show_file_info)
+        self._select_text_action = QAction(self)
+        self._select_text_action.setCheckable(True)
+        self._select_text_action.setEnabled(False)
+        self._select_text_action.toggled.connect(self._view.set_text_selection_mode)
+        self._copy_text_action = QAction(self)
+        self._copy_text_action.setShortcut(QKeySequence.StandardKey.Copy)
+        self._copy_text_action.triggered.connect(self._view.copy_selected_text)
+        self._customize_toolbar_action = QAction(self)
+        self._customize_toolbar_action.triggered.connect(self._customize_toolbar)
+        self._file_menu.insertAction(self._save_png_action, self._save_edits_action)
+        self._file_menu.insertAction(self._settings_action, self._file_info_action)
+        self._view_menu.addAction(self._select_text_action)
+        self._view_menu.addAction(self._copy_text_action)
+        self._view_menu.addAction(self._customize_toolbar_action)
+        self._toolbar.addAction(self._customize_toolbar_action)
+        self._toolbar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._toolbar.customContextMenuRequested.connect(lambda _pos: self._customize_toolbar())
+        self._toolbar_options = {
+            name: getattr(self, "_" + name + "_action")
+            for name in ("open", "reload", "previous_file", "next_file", "previous_page",
+                         "next_page", "zoom_out", "zoom_in", "fit", "rotate_left",
+                         "rotate_right", "invert_colors", "replace_colors", "save_edits",
+                         "save_png", "save_pdf", "save_postscript", "make_video", "compare",
+                         "file_info", "select_text")
+        }
+        self._toolbar_options["rotation_scope"] = self._rotation_toolbar_action
+        self._refresh_toolbar()
+
+    def _refresh_toolbar(self):
+        # Removing an action here keeps its menu entry and shortcut available.
+        for action in self._toolbar.actions():
+            self._toolbar.removeAction(action)
+        for name in self._config.toolbar_tools:
+            if name in self._toolbar_options:
+                self._toolbar.addAction(self._toolbar_options[name])
+
+    def _customize_toolbar(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(tr("自定义工具栏"))
+        root = QVBoxLayout(dialog)
+        root.addWidget(QLabel(tr("勾选要在工具栏显示的工具。也可右键工具栏打开此设置。")))
+        grid = QGridLayout()
+        boxes = {}
+        for index, (name, action) in enumerate(self._toolbar_options.items()):
+            box = QCheckBox(tr("旋转范围") if name == "rotation_scope" else action.text().replace("&", ""))
+            box.setChecked(name in self._config.toolbar_tools)
+            boxes[name] = box
+            grid.addWidget(box, index // 2, index % 2)
+        root.addLayout(grid)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        root.addWidget(buttons)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._config.toolbar_tools = [name for name, box in boxes.items() if box.isChecked()]
+            self._refresh_toolbar()
+            self._save_config()
+        dialog.deleteLater()
+
+    def is_modified(self, source=None):
+        source = source or self._current_file
+        state = self._document_transforms.get(source)
+        return state is not None and state.snapshot() != self._saved_states.get(source, TransformSnapshot())
+
+    def save_edits(self, source=None):
+        source = source or self._current_file
+        if source is None:
+            return True
+        snapshot = self._document_transforms[source].snapshot()
+        try:
+            path = save_state(source, snapshot)
+        except OSError as error:
+            self.show_nonfatal_error(tr("无法保存编辑记录"), str(error))
+            return False
+        self._saved_states[source] = snapshot
+        self.caption_changed.emit()
+        self.statusBar().showMessage(tr("编辑记录已保存：{path}", path=path), 5000)
+        return True
+
+    def confirm_save_changes(self):
+        for source in self._document_transforms:
+            if not self.is_modified(source):
+                continue
+            answer = QMessageBox.question(
+                self, tr("保存更改"),
+                tr("是否保存 {name} 的旋转和颜色调整？\n编辑记录保存为旁边的 .epslive.json 文件，下次打开自动恢复。源图像不变。",
+                   name=source.name),
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save)
+            if answer == QMessageBox.StandardButton.Cancel:
+                return False
+            if answer == QMessageBox.StandardButton.Save and not self.save_edits(source):
+                return False
+        return True
+
+    def _show_file_info(self):
+        if self._current_file is None:
+            return
+        from datetime import datetime
+        from PyQt6.QtGui import QImageReader
+        from PyQt6.QtWidgets import QPlainTextEdit
+        source = self._current_file
+        try:
+            stat = source.stat()
+        except OSError as error:
+            self.show_nonfatal_error(tr("文件信息"), str(error))
+            return
+        fields = [
+            (tr("文件："), source.name), (tr("路径："), str(source)),
+            (tr("格式："), source.suffix[1:].upper()),
+            (tr("大小："), f"{stat.st_size:,} bytes"),
+            (tr("修改时间："), datetime.fromtimestamp(stat.st_mtime).isoformat(sep=" ", timespec="seconds")),
+            (tr("页码："), f"{self._current_page_index + 1} / {self._page_count}"),
+        ]
+        if self._view.has_document():
+            size = self._view._active_context.document.pagePointSize(self._current_page_index)
+            fields.append((tr("页面尺寸："), f"{size.width():.2f} × {size.height():.2f} pt"))
+        if source.suffix.lower() in {".png", ".jpg", ".jpeg"}:
+            size = QImageReader(str(source)).size()
+            fields.append((tr("像素："), f"{size.width()} × {size.height()}"))
+        fields.extend([(tr("当前旋转："), f"{self._current_transforms().rotation_for(self._current_page_index + 1)}°"),
+                       (tr("编辑记录："), str(state_path(source)))])
+        dialog = QDialog(self)
+        dialog.setWindowTitle(tr("文件信息"))
+        dialog.resize(640, 390)
+        layout = QVBoxLayout(dialog)
+        info = QPlainTextEdit()
+        info.setReadOnly(True)
+        info.setPlainText("\n".join(f"{key} {value}" for key, value in fields))
+        layout.addWidget(info)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+        dialog.deleteLater()
 
     def _create_status_bar(self) -> None:
         status = self.statusBar()
@@ -615,6 +749,12 @@ class MainWindow(QMainWindow):
             ),
         )
         if filename:
+            self.request_open(filename)
+
+    def request_open(self, filename):
+        if self._host is not None and self._current_file is not None:
+            self._host.open_file(filename, self._config.open_mode)
+        else:
             self.open_eps(filename)
 
     def open_eps(self, filename: str | Path) -> None:
@@ -634,6 +774,14 @@ class MainWindow(QMainWindow):
 
         is_new_file = self._current_file != source
         if is_new_file:
+            if source not in self._document_transforms:
+                state = DocumentTransforms()
+                try:
+                    state.restore(load_state(source))
+                except (OSError, ValueError, TypeError, KeyError) as error:
+                    self.show_nonfatal_error(tr("无法读取编辑记录"), str(error))
+                self._document_transforms[source] = state
+                self._saved_states[source] = state.snapshot()
             self._cancel_active_preview()
             self._current_file = source
             self._current_pdf = None
@@ -655,6 +803,12 @@ class MainWindow(QMainWindow):
             self._previous_page_action.setEnabled(False)
             self._next_page_action.setEnabled(False)
             self._set_transform_actions_enabled(True)
+            self._select_text_action.setEnabled(source.suffix.lower() in {".eps", ".ps"})
+            if not self._select_text_action.isEnabled():
+                self._select_text_action.setChecked(False)
+            self._file_info_action.setEnabled(True)
+            self._save_edits_action.setEnabled(True)
+            self.caption_changed.emit()
 
         self._automatic_failure_count = 0
         self._generation += 1
@@ -752,6 +906,7 @@ class MainWindow(QMainWindow):
             state.replacements,
         )
         self._update_history_actions()
+        self.caption_changed.emit()
         if self._current_file is not None and self._page_count:
             self.document_state_changed.emit(self._current_file, state.snapshot(), self._current_page_index)
 
@@ -788,6 +943,7 @@ class MainWindow(QMainWindow):
             {path: state.snapshot() for path, state in self._document_transforms.items()},
             self._config.background_mode, self._config.background_color, self._config.wheel_action, self,
         )
+        dialog.set_candidates(self._host.open_documents() if self._host else [], self._page_count)
         self._comparison = dialog
         self.document_state_changed.connect(dialog.follow_current)
         dialog.error.connect(lambda error: self._diagnostics.record("Comparison", error))
@@ -844,6 +1000,8 @@ class MainWindow(QMainWindow):
             state.replacements, self,
             preview_loader=lambda cancel: exporter.read_original(frame, 72, cancel, 900),
             inverted=state.inverted, rotation=state.rotation_for(frame.page_number),
+            background_mode=self._config.background_mode,
+            background_color=self._config.background_color,
         )
         try:
             if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -905,7 +1063,7 @@ class MainWindow(QMainWindow):
             )
             self._remove_recent_file(filename)
             return
-        self.open_eps(filename)
+        self.request_open(filename)
 
     # ----- EPS-to-vector-preview lifecycle --------------------------------
 
@@ -1334,15 +1492,18 @@ class MainWindow(QMainWindow):
             if saved_folder
             else Path.home()
         )
-        snapshots = {
+        snapshots = {source: state for _name, source, state, _page in
+                     (self._host.open_documents() if self._host else [])}
+        snapshots.update({
             path: state.snapshot()
             for path, state in self._document_transforms.items()
-        }
+        })
         dialog = VideoCreationDialog(
             initial_folder,
             self._renderer,
             transforms_by_source=snapshots,
             parent=self,
+            current_file=self._current_file,
         )
         try:
             if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -1450,6 +1611,11 @@ class MainWindow(QMainWindow):
 
     def _retranslate_ui(self) -> None:
         action_texts = (
+            (self._save_edits_action, "保存编辑记录"),
+            (self._file_info_action, "文件信息"),
+            (self._select_text_action, "选择文本"),
+            (self._copy_text_action, "复制选中文本"),
+            (self._customize_toolbar_action, "自定义工具栏"),
             (self._open_action, "打开图片(&O)…"),
             (self._reload_action, "重新加载(&R)"),
             (self._save_png_action, "另存为 PNG(&S)…"),
@@ -1633,6 +1799,8 @@ class MainWindow(QMainWindow):
             f"<li>{tr('滚轮行为可在设置中选择；Ctrl+滚轮始终可缩放。')}</li>"
             f"<li>{tr('可旋转、反转或替换颜色，并将调整结果导出为 PNG/PDF/PS/EPS。')}</li>"
             f"<li>{tr('Ctrl+Z 撤销图像调整；调色窗口提供实时预览和原图对照。')}</li>"
+            f"<li>{tr('Ctrl+S 保存旋转和颜色编辑记录；关闭未保存的文件会提示。')}</li>"
+            f"<li>{tr('可在设置中选择新窗口或标签页打开；查看菜单支持自定义工具栏和选择文本。')}</li>"
             f"<li>{tr('可并排锁定参考图比较；制作视频前可试播并查看预计时长。')}</li>"
             f"<li>{tr('多页文档可逐页导出 PNG，或将所有页面和相邻图片制作成 MP4/GIF。')}</li></ul>"
             f"<h3>{tr('作者')}</h3>"
@@ -1776,12 +1944,15 @@ class MainWindow(QMainWindow):
                 url.isLocalFile()
                 and Path(url.toLocalFile()).suffix.lower() in SUPPORTED_SOURCE_SUFFIXES
             ):
-                self.open_eps(url.toLocalFile())
+                self.request_open(url.toLocalFile())
                 event.acceptProposedAction()
                 return
         event.ignore()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        if not self._discard_on_close and not self.confirm_save_changes():
+            event.ignore()
+            return
         if self._comparison is not None and not self._comparison.close():
             event.ignore()
             return

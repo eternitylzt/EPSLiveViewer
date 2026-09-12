@@ -75,6 +75,15 @@ class VideoExporter:
 
     def __init__(self, renderer: EpsRenderer) -> None:
         self._renderer = renderer
+        self._pdf_cache = {}
+
+    def close(self):
+        for _stamp, path in self._pdf_cache.values():
+            self._renderer.cache.release(path)
+        self._pdf_cache.clear()
+
+    def __del__(self):
+        self.close()
 
     @staticmethod
     def _raise_if_cancelled(cancel_event: threading.Event) -> None:
@@ -201,22 +210,45 @@ class VideoExporter:
 
     def read_original(self, frame, dpi=72, cancel_event=None, max_edge=None):
         """Unadjusted pixels, optionally limited for inexpensive UI previews."""
-        rendered = None
-        try:
-            source = frame.path
-            if source.suffix.lower() in {".eps", ".ps"}:
-                rendered = self._renderer.render(
-                    source,
-                    dpi=dpi,
-                    cancel_event=cancel_event,
-                    guard_dimensions=True,
-                    page_number=frame.page_number,
-                )
-                source = rendered.png_path
+        source = Path(frame.path).resolve()
+        if source.suffix.lower() not in {".eps", ".ps"}:
             return self.read_raster(source, max_edge)
+        # Interpret PostScript once, exactly as the main preview does. Some PS
+        # producers/older GS devices handle FirstPage/LastPage inconsistently.
+        # Select the page from the resulting document, not from the PS stream.
+        from PyQt6 import sip
+        from PyQt6.QtPdf import QPdfDocument
+        stat = source.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        previous = self._pdf_cache.get(source)
+        if previous is None or previous[0] != stamp:
+            result = self._renderer.convert_to_pdf(source, cancel_event)
+            if previous:
+                self._renderer.cache.release(previous[1])
+            self._pdf_cache[source] = (stamp, result.pdf_path)
+        document = QPdfDocument(None)
+        try:
+            if cancel_event is not None:
+                self._raise_if_cancelled(cancel_event)
+            if document.load(str(self._pdf_cache[source][1])) != QPdfDocument.Error.None_:
+                raise VideoExportError(tr("QtPdf 无法加载预览文档。"))
+            page = frame.page_number - 1
+            if not 0 <= page < document.pageCount():
+                raise VideoExportError(tr("视频帧页码无效。"))
+            points = document.pagePointSize(page)
+            size = QSize(max(1, round(points.width() * dpi / 72)),
+                         max(1, round(points.height() * dpi / 72)))
+            if max_edge and max(size.width(), size.height()) > max_edge:
+                size.scale(QSize(max_edge, max_edge), Qt.AspectRatioMode.KeepAspectRatio)
+            if size.width() * size.height() > 64_000_000:
+                raise VideoExportError(tr("图片像素尺寸过大或无效，无法安全读取。"))
+            image = document.render(page, size)
+            if image.isNull():
+                raise VideoExportError(tr("文档不包含可读取的页面。"))
+            return image
         finally:
-            if rendered is not None:
-                self._renderer.cache.release(rendered.png_path)
+            document.close()
+            sip.delete(document)
 
     @staticmethod
     def _composite_background(image: QImage, color: str) -> QImage:
