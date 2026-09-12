@@ -1,6 +1,7 @@
 """User-facing regression checks for the local 2.1 workflow improvements."""
 
 import json
+import os
 import sys
 import tempfile
 import time
@@ -25,6 +26,10 @@ from viewer import MainWindow
 
 
 APP = QApplication.instance() or QApplication([])
+OFFSCREEN_BACKGROUND_PDF = (
+    sys.platform in {"win32", "darwin"}
+    and os.environ.get("QT_QPA_PLATFORM", "").lower() == "offscreen"
+)
 
 
 def wait_for(predicate, seconds=20):
@@ -73,6 +78,10 @@ class UpgradeWorkflowTests(unittest.TestCase):
                  and self.window._current_pdf is not None
                  and self.window._view.has_document())
 
+    @unittest.skipIf(
+        OFFSCREEN_BACKGROUND_PDF,
+        "Windows/macOS offscreen plugins do not complete background QPdfWriter jobs",
+    )
     def test_undo_redo_is_per_file_and_preserves_live_refresh(self):
         self.open(self.first)
         self.window._invert_colors_action.setChecked(True)
@@ -142,6 +151,10 @@ class UpgradeWorkflowTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
 
+    @unittest.skipIf(
+        OFFSCREEN_BACKGROUND_PDF,
+        "Windows/macOS offscreen plugins do not complete background QPdfWriter jobs",
+    )
     def test_background_tiles_discard_old_color_jobs(self):
         self.open(self.first)
         state = self.window._current_transforms()
@@ -202,6 +215,10 @@ class UpgradeWorkflowTests(unittest.TestCase):
         sequence.close()
         sequence.deleteLater()
 
+    @unittest.skipIf(
+        OFFSCREEN_BACKGROUND_PDF,
+        "Windows/macOS offscreen plugins do not complete background QPdfWriter jobs",
+    )
     def test_comparison_link_lock_follow_and_close(self):
         self.open(self.first)
         self.window._show_comparison()
