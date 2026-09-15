@@ -97,20 +97,20 @@ class VideoCreationDialog(QDialog):
         self._scope_combo.addItem(tr("文件夹内的图片"), "folder")
         if current_file is not None:
             self._scope_combo.addItem(tr("当前文件的全部页面"), "current")
-            if current_file.suffix.lower() in {".eps", ".ps"}:
+            if current_file.suffix.lower() in {".eps", ".ps", ".pdf"}:
                 self._scope_combo.setCurrentIndex(1)
         source_row.addWidget(self._scope_combo)
         self._format_filter = QComboBox()
-        for label, suffixes in (("EPS / PS / PNG / JPG", (".eps", ".ps", ".png", ".jpg", ".jpeg")),
+        for label, suffixes in (("EPS / PS / PDF / PNG / JPG", (".eps", ".ps", ".pdf", ".png", ".jpg", ".jpeg")),
                                 ("EPS / PS", (".eps", ".ps")), ("PNG / JPG", (".png", ".jpg", ".jpeg")),
-                                ("EPS", (".eps",)), ("PS", (".ps",)), ("PNG", (".png",)), ("JPG", (".jpg", ".jpeg"))):
+                                ("EPS", (".eps",)), ("PS", (".ps",)), ("PDF", (".pdf",)), ("PNG", (".png",)), ("JPG", (".jpg", ".jpeg"))):
             self._format_filter.addItem(label, suffixes)
         source_row.addWidget(self._format_filter)
         root.addLayout(source_row)
 
         hint = QLabel(
             tr(
-                "支持 EPS、PS、PNG、JPG/JPEG；多页文件会逐页展开。左侧帧按显示顺序写入，可将不需要的帧移到右侧。"
+                "支持 EPS、PS、PDF、PNG、JPG/JPEG；多页文件会逐页展开。左侧帧按显示顺序写入，可将不需要的帧移到右侧。"
             )
         )
         hint.setWordWrap(True)
@@ -308,7 +308,7 @@ class VideoCreationDialog(QDialog):
                         QMessageBox.warning(self, tr("无法读取编辑记录"), f"{path.name}\n{error}")
                         transforms = TransformSnapshot()
                 page_count = 1
-                if path.suffix.lower() in {".eps", ".ps"}:
+                if path.suffix.lower() in {".eps", ".ps", ".pdf"}:
                     try:
                         page_count = self._renderer.page_count(path)
                     except Exception:

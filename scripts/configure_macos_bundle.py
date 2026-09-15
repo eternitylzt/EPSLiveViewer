@@ -17,6 +17,13 @@ def configure(info_plist: Path, version: str) -> None:
     info["CFBundleVersion"] = version
     info["CFBundleDocumentTypes"] = [
         {
+            "CFBundleTypeName": "PDF Document",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "CFBundleTypeExtensions": ["pdf"],
+            "LSItemContentTypes": ["com.adobe.pdf"],
+        },
+        {
             "CFBundleTypeName": "EPS/PostScript Document",
             "CFBundleTypeRole": "Viewer",
             "LSHandlerRank": "Alternate",

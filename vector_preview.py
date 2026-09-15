@@ -85,6 +85,7 @@ class _PdfPageItem(QGraphicsItem):
         self._page_rect = QRectF(0.0, 0.0, float(page_size.width()), float(page_size.height()))
         self._overview = QPixmap()
         self._tiles: OrderedDict[TileKey, QPixmap] = OrderedDict()
+        self._tile_clips = {}
         self._cache_bytes = 0
         self._level = 0
         self._full_size = QSize(
@@ -110,11 +111,13 @@ class _PdfPageItem(QGraphicsItem):
     def has_tile(self, key: TileKey) -> bool:
         return key in self._tiles
 
-    def add_tile(self, key: TileKey, pixmap: QPixmap) -> None:
+    def add_tile(self, key: TileKey, pixmap: QPixmap, clip=None) -> None:
         previous = self._tiles.pop(key, None)
         if previous is not None:
             self._cache_bytes -= self._pixmap_bytes(previous)
         self._tiles[key] = pixmap
+        if clip is not None:
+            self._tile_clips[key] = QRect(clip)
         self._cache_bytes += self._pixmap_bytes(pixmap)
         self._trim_cache()
         if key[0] == self._level:
@@ -122,6 +125,7 @@ class _PdfPageItem(QGraphicsItem):
 
     def clear_cache(self) -> None:
         self._tiles.clear()
+        self._tile_clips.clear()
         self._overview = QPixmap()
         self._cache_bytes = 0
         self.update()
@@ -133,6 +137,7 @@ class _PdfPageItem(QGraphicsItem):
     def _trim_cache(self) -> None:
         while self._cache_bytes > self.CACHE_LIMIT_BYTES and len(self._tiles) > 1:
             _key, old = self._tiles.popitem(last=False)
+            self._tile_clips.pop(_key, None)
             self._cache_bytes -= self._pixmap_bytes(old)
 
     def tile_scene_rect(self, key: TileKey, pixel_width: int, pixel_height: int) -> QRectF:
@@ -196,7 +201,20 @@ class _PdfPageItem(QGraphicsItem):
                 detailed = self._tiles.get(key)
                 if detailed is not None:
                     self._tiles.move_to_end(key)
-                    painter.drawPixmap(target, detailed, QRectF(detailed.rect()))
+                    clip = self._tile_clips.get(key)
+                    if clip is None:
+                        painter.drawPixmap(target, detailed, QRectF(detailed.rect()))
+                    else:
+                        # Keep a two-pixel gutter for interpolation. Each tile
+                        # paints only its own core, avoiding gaps/double alpha.
+                        expanded = QRectF(clip.x() * self._page_rect.width() / full_width,
+                                          clip.y() * self._page_rect.height() / full_height,
+                                          clip.width() * self._page_rect.width() / full_width,
+                                          clip.height() * self._page_rect.height() / full_height)
+                        painter.save()
+                        painter.setClipRect(target, Qt.ClipOperation.IntersectClip)
+                        painter.drawPixmap(expanded, detailed, QRectF(detailed.rect()))
+                        painter.restore()
                     continue
 
                 # A small full-page overview is the instant fallback while a
@@ -243,6 +261,10 @@ class VectorGraphicsView(QGraphicsView):
         self._page_index = 0
         self._page_count = 0
         self._text_mode = False
+        self._text_regions_key = None
+        self._text_regions = []
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
         self._selection_start = None
         self._selection = None
         self._contexts: dict[int, _DocumentContext] = {}
@@ -653,19 +675,48 @@ class VectorGraphicsView(QGraphicsView):
         self._text_mode = bool(enabled)
         self._selection = None
         self._selection_start = None
-        self.setDragMode(QGraphicsView.DragMode.NoDrag if enabled else QGraphicsView.DragMode.ScrollHandDrag)
-        self.viewport().setCursor(Qt.CursorShape.IBeamCursor if enabled else Qt.CursorShape.OpenHandCursor)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
         self.viewport().update()
 
     def _page_point(self, position):
         return self._page_item.mapFromScene(self.mapToScene(position.toPoint()))
 
+    def _over_text(self, position):
+        if not self._text_mode or not self.has_document():
+            return False
+        point = self._page_point(position)
+        if not self._page_item.boundingRect().contains(point):
+            return False
+        key = (self._active_context.generation, self._page_index)
+        if key != self._text_regions_key:
+            self._text_regions_key = key
+            self._text_regions = [polygon.boundingRect() for polygon in
+                                  self._active_context.document.getAllText(self._page_index).bounds()]
+        candidates = [rect for rect in self._text_regions if rect.adjusted(-1, -1, 1, 1).contains(point)]
+        if not candidates:
+            return False
+        # At a glyph's upper edge both nearest-character endpoints can be the
+        # same index. Accept the visible text region's edge as a drag origin.
+        if any(abs(point.y() - rect.top()) < 2 or abs(point.x() - rect.left()) < 2 for rect in candidates):
+            return True
+        selection = self._active_context.document.getSelection(
+            self._page_index, point - QPointF(2, 1), point + QPointF(2, 1))
+        return bool(selection.text().strip()) and any(
+            polygon.boundingRect().adjusted(-1, -1, 1, 1).contains(point)
+            for polygon in selection.bounds())
+
     def mousePressEvent(self, event):
-        if self._text_mode and self.has_document() and event.button() == Qt.MouseButton.LeftButton:
+        if self._over_text(event.position()) and event.button() == Qt.MouseButton.LeftButton:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
             self._selection_start = self._page_point(event.position())
             self._selection = None
             event.accept()
             return
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self._selection = None
+        self.viewport().update()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -676,11 +727,15 @@ class VectorGraphicsView(QGraphicsView):
             event.accept()
             return
         super().mouseMoveEvent(event)
+        if event.buttons() == Qt.MouseButton.NoButton:
+            self.viewport().setCursor(Qt.CursorShape.IBeamCursor if self._over_text(event.position())
+                                      else Qt.CursorShape.OpenHandCursor)
 
     def mouseReleaseEvent(self, event):
         if self._text_mode and self._selection_start is not None:
             self.mouseMoveEvent(event)
             self._selection_start = None
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -740,7 +795,10 @@ class VectorGraphicsView(QGraphicsView):
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(self._page_item.sceneBoundingRect())
+        # Draw the paper border outside the content so it cannot cover an axis
+        # that lies exactly on a tightly cropped EPS page edge.
+        margin = 1.0 / max(abs(self.transform().m11()), 0.01)
+        painter.drawRect(self._page_item.sceneBoundingRect().adjusted(-margin, -margin, margin, margin))
         if self._selection is not None:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(40, 130, 240, 85))
@@ -791,7 +849,7 @@ class VectorGraphicsView(QGraphicsView):
     def _scale_level(effective_scale: float) -> tuple[int, float]:
         # Half-octave buckets avoid re-rendering for every wheel tick.  A small
         # oversample margin keeps paths crisp between adjacent buckets.
-        safe_scale = max(0.0625, min(float(effective_scale) * 1.2, 1024.0))
+        safe_scale = max(0.0625, min(float(effective_scale) * 2.0, 1024.0))
         level = int(math.ceil(math.log2(safe_scale) * 2.0))
         return level, 2.0 ** (level / 2.0)
 
@@ -864,6 +922,7 @@ class VectorGraphicsView(QGraphicsView):
                     min(tile, full_size.width() - pixel_x),
                     min(tile, full_size.height() - pixel_y),
                 )
+                clip = clip.adjusted(-2, -2, 2, 2).intersected(QRect(0, 0, full_size.width(), full_size.height()))
                 scene_center = QPointF(
                     (clip.center().x() + 0.5) * page.width() / full_size.width(),
                     (clip.center().y() + 0.5) * page.height() / full_size.height(),
@@ -985,7 +1044,7 @@ class VectorGraphicsView(QGraphicsView):
         if request.kind == "overview":
             self._page_item.set_overview(pixmap)
         elif request.key is not None:
-            self._page_item.add_tile(request.key, pixmap)
+            self._page_item.add_tile(request.key, pixmap, request.clip)
 
     def _on_colors_ready(self, number, image, error, cancelled):
         entry = self._color_jobs.pop(number, None)

@@ -2,32 +2,32 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-Current version: **2.2.1**.
+Current version: **2.3.0**.
 
-Version 2.2.1 fixes menu bar and toolbar clicks that could be ignored on Apple Silicon Macs. Affected users should download the new `EPSLiveViewer-macOS-arm64.dmg` and replace the old app.
+Version 2.3.0 adds PDF reading and color adjustments, improves high-DPI PNG export, thin-line rendering and automatic text selection, and preserves vector text/paths when recoloring typical scientific plots.
 
-EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scientific plotting workflows. It live-previews EPS/PS files, opens PNG/JPG directly, and provides neighboring-file comparison, multi-page navigation, rotation, color inversion/replacement, export, and video creation in one interface.
+EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scientific plotting workflows. It live-previews EPS/PS/PDF files, opens PNG/JPG directly, and provides neighboring-file comparison, multi-page navigation, rotation, color inversion/replacement, export, and video creation in one interface.
 
 ## Main features
 
 - Customizable toolbar: reload and rotation are hidden by default. Use View → Customize Toolbar or right-click the toolbar. New configurations default to a white background; existing preferences are retained.
 - Independent tabs: Settings offers new windows (default) or tabs, including files opened by double-click. Each tab keeps its own view, edits, preferences, monitoring, and export jobs.
 - Save edits: Ctrl+S saves rotation and color adjustments. Closing unsaved edits prompts to save, discard, or cancel.
-- File information and text selection: inspect file/page details and select/copy text preserved in EPS/PS documents.
+- File information and text selection: inspect file/page details. EPS/PS/PDF automatically select text when dragging over text and pan when dragging blank space.
 
-- Vector EPS/PS preview: visible content is rerendered for the current zoom, keeping paths and text sharp.
+- Vector EPS/PS/PDF preview: visible content is rerendered for the current zoom. Padded tiles and higher sampling improve thin axes. PDF reading does not require Ghostscript.
 - PNG/JPG viewing: open, zoom, rotate, invert, and replace colors without Ghostscript.
 - Live refresh when IDL, Python, MATLAB, Fortran, or another program regenerates the current file.
-- Neighbor browsing: EPS, PS, PNG, and JPG/JPEG files in the same folder are naturally sorted; use `Left`/`Right` to compare them.
-- Multi-page documents: use `Up`/`Down` for EPS/PS pages. The wheel can zoom, browse files, or change pages; `Ctrl + wheel` always zooms.
+- Neighbor browsing: EPS, PS, PDF, PNG, and JPG/JPEG files in the same folder are naturally sorted; use `Left`/`Right` to compare them.
+- Multi-page documents: use `Up`/`Down` for EPS/PS/PDF pages. The wheel can zoom, browse files, or change pages; `Ctrl + wheel` always zooms.
 - Image adjustments: rotate left/right with a choice of current page or all pages, invert the whole document, and define up to 16 color replacements.
 - Flexible color selection: Qt's dialog supports RGB and HEX, and a screen picker where the operating system provides one. Each mapping has an RGB tolerance. Processing always follows “invert → replace”, so click order does not change the result.
 - Undo/redo: `Ctrl+Z` undoes adjustments; `Ctrl+Y` or `Ctrl+Shift+Z` redoes them. Each file keeps up to 50 operations, including across live refreshes.
 - Live color preview: edits run in the background; hold View Original to compare original colors. OK applies the draft and Cancel preserves existing adjustments.
 - Side-by-side comparison: pin the left reference and choose an independent right image/page or follow the main window, with linked zoom and pan.
-- PNG export at 72–600 DPI. For multi-page EPS/PS, save the current page or export every page into a new folder.
+- PNG export at 72–600 DPI. For multi-page EPS/PS/PDF, save the current page or export every page into a new folder. Recolor supported vectors before antialiasing to avoid dark edge fringes; low/medium-DPI output uses supersampling when within the pixel budget.
 - Document export: save adjusted output as PDF, PS, or EPS. PDF/PS retain all pages; standard EPS saves the current page.
-- MP4/GIF creation: every EPS/PS page and every PNG/JPG can be an independent frame. Reorder/exclude frames, inherit the first frame's canvas size, crop proportionally, choose FPS, and apply existing rotation/color adjustments.
+- MP4/GIF creation: every EPS/PS/PDF page and every PNG/JPG can be an independent frame. Reorder/exclude frames, inherit the first frame's canvas size, crop proportionally, choose FPS, and apply existing rotation/color adjustments.
 - Video rehearsal: see estimated duration and play, pause, seek, or loop a low-resolution preview before exporting. The output video is not overwritten.
 - Manual diagnostics: view and copy versions, current page and adjustments, and recent errors. Reports are never uploaded automatically.
 - Chinese/English interface, recent files, configurable background, and manual GitHub update checks.
@@ -43,7 +43,7 @@ Download the appropriate package from [GitHub Releases](https://github.com/etern
 - macOS Intel: download `EPSLiveViewer-macOS-x64.dmg`.
 - Linux x64: extract `EPSLiveViewer-Linux-x64.tar.gz`, make the executable runnable, and launch it.
 
-Release packages do not require Python. Ghostscript is required to view or process EPS/PS; the app searches automatically, or you can select it under **File → Settings**. Opening/adjusting PNG/JPG, saving PNG, and creating a video exclusively from raster images do not require Ghostscript. Exporting PNG/JPG to PDF/PS/EPS does.
+Release packages do not require Python. Reading EPS/PS or exporting EPS/PS requires Ghostscript; select it under **File → Settings** if automatic detection fails. Reading ordinary PDFs, opening PNG/JPG, color adjustments, PNG export, and video creation do not require Ghostscript. Vector recoloring of ordinary PDFs also works without it; document export explicitly requests Ghostscript if complex PDF effects need raster fallback.
 
 ## Usage
 
@@ -51,8 +51,8 @@ Release packages do not require Python. Ghostscript is required to view or proce
 2. Scroll to zoom, drag to pan, double-click for 100%, or use the toolbar zoom/fit controls.
 3. Use the arrow keys to browse neighboring files and document pages. The status bar shows file position, page number, page size, zoom, and update time.
 4. Choose **Current Page Only** or **All Pages** under **Image → Rotation Scope**, then rotate left/right. You can add these tools to the toolbar. Under **Image → Replace Colors**, choose source/target colors and tolerance; drag the divider to resize the editor and preview.
-5. Use **Save as PNG/PDF/EPS/PS** to export the adjusted result. Color replacement stores PDF/PS/EPS pages as raster images at the selected DPI. Without replacements, rotation and inversion of EPS/PS content remain vector-based.
-6. Choose **File → Create Video/Animation**. EPS/PS defaults to all pages of the current document; you can switch to a folder and filter formats. Edit the frame list and output options. Rehearsal identifies each file/page and uses the same pages and rotations as the main preview.
+5. Use **Save as PNG/PDF/EPS/PS** for standalone adjusted files; no edit-history file is needed. Typical text, solid paths and fills retain vectors after recoloring. Complex gradients, special color spaces, annotations and other unsupported effects use the selected fallback DPI. PDF/PS keep all pages; EPS exports the current page.
+6. Choose **File → Create Video/Animation**. EPS/PS/PDF defaults to all pages of the current document; you can switch to a folder and filter formats. Edit the frame list and output options. Rehearsal identifies each file/page and uses the same pages and rotations as the main preview.
 
 New workflow controls:
 
@@ -68,7 +68,7 @@ New workflow controls:
 
 Side-by-side comparison supports maximization. For multi-page documents the right pane initially shows the next page; the dropdown also offers other pages, open tabs, and Browse.
 
-**View → Select Text** enables drag selection; press Ctrl+C or use Copy Selected Text. Selection follows rotated pages. Disable the mode to resume drag-to-pan. Outlined glyphs and scanned images contain no selectable text; OCR is not included.
+**View → Auto-select Text** is enabled by default for EPS/PS/PDF. Over text, drag to select and press Ctrl+C to copy; over blank space, drag to pan. Disable it to always pan. Selection follows rotated pages. Outlined glyphs and scanned images contain no selectable text. OCR, changing text content, and moving PDF graphics objects are not included.
 
 Video crop previews and exported frames use the same rotation/color pipeline. Reopening the creation window does not rotate an existing preview again. MP4 uses H.264 Main / YUV420; odd dimensions are padded by just 1 pixel on the right or bottom, preserving the complete crop. GIF dimensions are unchanged.
 
@@ -86,9 +86,17 @@ PNG/JPG is raster data; the app cannot create missing detail. Photographs embedd
 
 Each image or page is one frame; duration is frame count divided by FPS. Distinct steps at low FPS are expected; raise FPS for faster switching. Version 2.0.1 improves MP4 player compatibility; re-export videos made with an older version.
 
-### Why does an inverted PDF remain vector while arbitrary replacement does not?
+### Can recolored PDF/EPS/PS remain vector?
 
-Rotation and whole-page inversion can use document graphics operations. Tolerance-based multi-color replacement must inspect pixels, so PDF/PS/EPS receives raster-backed pages at the chosen DPI. PNG and video are always pixel output.
+Since 2.3.0, typical plots can have their document paint colors modified while retaining text and paths. Complex gradients, patterns, special color spaces, blend effects, annotations, and other unsupported content use raster fallback at the chosen DPI. Embedded photos remain raster. PNG and video are always pixel output.
+
+### Why did 600 DPI export stall?
+
+Older versions used slow Python pixel loops, and 600 DPI A4 images could exceed Qt's default decoder budget. Native strip-based color operations and direct page rendering address both bottlenecks. To avoid exhausting memory, output remains limited to 64 million pixels and 30,000 pixels per edge. Reduce DPI for oversized pages. Higher DPI cannot restore missing detail in source bitmaps.
+
+### Does PDF support require new components?
+
+Release packages include PDF reading and recoloring. Password entry for protected PDFs, OCR, text-content editing, and moving graphic objects are not supported. Some complex PDF effects require raster-compatible export.
 
 ### Why does macOS say the app is unsafe?
 
@@ -107,7 +115,7 @@ Choose **Help → Check for Updates** manually. There is no background check, au
 
 The development stack is Python 3.11+, PyQt6, Ghostscript, and PyInstaller. After installing the requirements, run `python main.py example.eps`. Use `build.bat` for a one-file Windows EXE and `build_unix.sh` on Linux/macOS. Pushing an `eps-live-viewer-v*` tag triggers native Windows, Linux, macOS Apple Silicon, and macOS Intel builds and creates a GitHub Release.
 
-Color processing uses only Qt/Python and adds no image or PDF dependency. Ghostscript remains the only EPS/PostScript interpreter.
+PDF reading reuses the existing QtPdf component. Color calculations use a slim Pillow build; vector recoloring uses pure-Python pypdf. Pillow's AVIF, WebP, font, and Tk components are excluded, and no full PDF editing engine is bundled. Ghostscript remains the only EPS/PostScript interpreter.
 
 Video rehearsal uses Qt timers and temporary PNG frames, not QtMultimedia. At most eight preview frames are held in memory; closing the dialog removes its temporary files. Color work is cancellable and obsolete results are discarded. Undo history stores small adjustment snapshots, not copies of source documents.
 

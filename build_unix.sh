@@ -18,6 +18,7 @@ common_args=(
     --name EPSLiveViewer
     --add-data "resources:resources"
     --collect-all imageio_ffmpeg
+    --additional-hooks-dir hooks
 )
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -26,7 +27,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         --onedir \
         --osx-bundle-identifier com.zhentongli.epsliveviewer \
         main.py
-    app_version="${APP_VERSION:-2.2.1}"
+    app_version="${APP_VERSION:-2.3.0}"
     .venv/bin/python scripts/configure_macos_bundle.py \
         dist/EPSLiveViewer.app/Contents/Info.plist "$app_version"
     codesign --force --deep --sign - dist/EPSLiveViewer.app

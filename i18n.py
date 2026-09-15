@@ -24,6 +24,16 @@ def tr(source: str, /, **values: Any) -> str:
 
 
 _ENGLISH = {
+    "用于快速查看 EPS/PS/PDF/PNG/JPG，并实时刷新当前文件。": "Quickly preview EPS/PS/PDF/PNG/JPG and live-refresh the current file.",
+    "文字处拖动选择文本，空白处拖动平移；转为路径的文字不支持选择。": "Drag over text to select it, or over blank space to pan. Outlined text cannot be selected.",
+    "支持 EPS、PS、PDF、PNG、JPG/JPEG；多页文件会逐页展开。左侧帧按显示顺序写入，可将不需要的帧移到右侧。": "Supports EPS, PS, PDF, PNG, and JPG/JPEG. Multi-page documents expand into individual frames. Frames on the left are exported in order; move unwanted frames to the right.",
+    "自动选择文本": "Auto-select Text",
+    "请选择 EPS、PS、PDF、PNG、JPG 或 JPEG 文件。": "Choose an EPS, PS, PDF, PNG, JPG, or JPEG file.",
+    "支持的图片 (*.eps *.EPS *.ps *.PS *.pdf *.PDF *.png *.PNG *.jpg *.JPG *.jpeg *.JPEG);;所有文件 (*.*)": "Supported images (*.eps *.EPS *.ps *.PS *.pdf *.PDF *.png *.PNG *.jpg *.JPG *.jpeg *.JPEG);;All files (*.*)",
+    "无法读取 PDF 页面，文件可能损坏或需要密码。": "Could not read the PDF page. The file may be damaged or require a password.",
+    "页面渲染失败。": "Page rendering failed.",
+    "此 PDF 含复杂配色，请安装 Ghostscript 以导出兼容的调色文档，或另存为 PNG。": "This PDF uses complex colors. Install Ghostscript for compatible adjusted document export, or save as PNG.",
+    "优先保留文字和线条为矢量；复杂渐变等内容可能使用位图。请选择备用渲染 DPI：": "Text and paths are preserved as vectors when supported. Complex gradients/effects may use raster output. Choose fallback rendering DPI:",
     "Ctrl+S 保存旋转和颜色编辑记录；关闭未保存的文件会提示。": "Ctrl+S saves rotation and color edits; closing a file with unsaved edits prompts you.",
     "可在设置中选择新窗口或标签页打开；查看菜单支持自定义工具栏和选择文本。": "Settings lets you open files in windows or tabs. View offers toolbar customization and text selection.",
     "保存编辑记录": "Save Edits",

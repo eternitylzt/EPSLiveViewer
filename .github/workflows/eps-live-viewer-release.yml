@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing or new release tag
         required: true
-        default: eps-live-viewer-v2.2.1
+        default: eps-live-viewer-v2.3.0
       target:
         description: Build all platforms or replace only the Apple Silicon DMG
         type: choice
@@ -53,6 +53,25 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Check frozen PDF and high-DPI workflows on macOS/Linux
+        if: runner.os == 'macOS' || runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            bundle_mode=--onedir
+            smoke_exe=pdf-smoke-dist/PdfColorSmoke/PdfColorSmoke
+          else
+            bundle_mode=--onefile
+            smoke_exe=pdf-smoke-dist/PdfColorSmoke
+          fi
+          python -m PyInstaller --noconfirm "$bundle_mode" --console \
+            --name PdfColorSmoke --paths . --additional-hooks-dir hooks \
+            --distpath pdf-smoke-dist --workpath pdf-smoke-build \
+            tests/test_pdf_color_export.py
+          "$smoke_exe" -v
 
       - name: Check native macOS mouse interaction
         if: runner.os == 'macOS'
@@ -108,6 +127,7 @@ jobs:
             --name EPSLiveViewer \
             --add-data "resources:resources" \
             --collect-all imageio_ffmpeg \
+            --additional-hooks-dir hooks \
             main.py
           mkdir -p package packages
           chmod +x dist/EPSLiveViewer
@@ -131,6 +151,7 @@ jobs:
             --osx-bundle-identifier com.zhentongli.epsliveviewer \
             --add-data "resources:resources" \
             --collect-all imageio_ffmpeg \
+            --additional-hooks-dir hooks \
             main.py
           APP_VERSION="${RELEASE_TAG#eps-live-viewer-v}"
           python scripts/configure_macos_bundle.py \

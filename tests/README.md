@@ -1,5 +1,24 @@
 # Packaging regression check
 
+For 2.3.0, `test_pdf_color_export.py` checks 600 DPI A4 recolored PNG export,
+alpha/tolerance/non-cascading replacement semantics, PDF input and multiple video
+frames, preserved vector paths and text in recolored PDFs without Ghostscript,
+and actual rendered thin axes at seven zoom levels. Qt viewport mouse events
+check automatic text selection and blank-space panning. Clipboard writes are
+checked separately from system clipboard ownership (unavailable on some hosts).
+
+Windows 2.3.0 local verification (Python 3.12.10 / PyInstaller 6.22.2):
+
+- The full source suite and user-provided three-page EPS package smoke check pass.
+- A separately frozen `PdfColorSmoke.exe`, built with production hooks, passes
+  the four PDF/color/600-DPI/viewport regressions. Its A4 600 DPI color export took
+  approximately one second on the development machine; performance varies.
+- Production EXE: 58,682,093 bytes; previous local build: 56,099,038 bytes.
+  Increase: 2,583,055 bytes (4.6%). PDF reading reuses QtPdf; only lightweight
+  recoloring dependencies were added. Full PDF object editing is not included.
+- Linux/macOS build hooks were updated, but this local update has not yet been
+  built or interactively tested on those operating systems.
+
 For 2.2.1, `test_document_workspace.py` checks independent tab edits and
 shortcuts, external-process open requests, sidecar round trips, close cancellation,
 multi-page comparison, text extraction, and actual decoded MP4 frame colors.

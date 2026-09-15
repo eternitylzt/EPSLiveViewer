@@ -47,7 +47,7 @@ class VideoFrameSource:
 
     @property
     def display_name(self) -> str:
-        if self.path.suffix.lower() in {".eps", ".ps"}:
+        if self.path.suffix.lower() in {".eps", ".ps", ".pdf"}:
             return tr(
                 "{name}（第 {page} 页）",
                 name=self.path.name,
@@ -211,7 +211,7 @@ class VideoExporter:
     def read_original(self, frame, dpi=72, cancel_event=None, max_edge=None):
         """Unadjusted pixels, optionally limited for inexpensive UI previews."""
         source = Path(frame.path).resolve()
-        if source.suffix.lower() not in {".eps", ".ps"}:
+        if source.suffix.lower() not in {".eps", ".ps", ".pdf"}:
             return self.read_raster(source, max_edge)
         # Interpret PostScript once, exactly as the main preview does. Some PS
         # producers/older GS devices handle FirstPage/LastPage inconsistently.

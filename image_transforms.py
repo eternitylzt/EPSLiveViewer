@@ -128,45 +128,40 @@ def apply_color_adjustments(
     if not mappings:
         return image
 
-    prepared: list[tuple[int, int, int, int, int, int, int]] = []
+    from PIL import Image, ImageChops
+
+    prepared = []
     for mapping in mappings:
         src = QColor(mapping.source)
         dst = QColor(mapping.target)
-        prepared.append(
-            (
-                src.red(),
-                src.green(),
-                src.blue(),
-                dst.red(),
-                dst.green(),
-                dst.blue(),
-                mapping.tolerance,
-            )
-        )
+        prepared.append(([
+            [255 if abs(value - channel) <= mapping.tolerance else 0 for value in range(256)]
+            for channel in (src.red(), src.green(), src.blue())
+        ], (dst.red(), dst.green(), dst.blue())))
 
     bits = image.bits()
     bits.setsize(image.sizeInBytes())
     pixels = memoryview(bits).cast("B")
     stride = image.bytesPerLine()
-    width_bytes = image.width() * 4
-    for row in range(image.height()):
+    # Native channel operations replace the Python per-pixel loop. Work in
+    # strips to bound temporary memory even for 600 DPI A4 pages (~35M pixels).
+    for row in range(0, image.height(), 128):
         if cancel_event is not None and cancel_event.is_set():
             break
         start = row * stride
-        for offset in range(start, start + width_bytes, 4):
-            if pixels[offset + 3] == 0:
-                continue
-            red, green, blue = pixels[offset], pixels[offset + 1], pixels[offset + 2]
-            for sr, sg, sb, tr, tg, tb, tolerance in prepared:
-                if (
-                    abs(red - sr) <= tolerance
-                    and abs(green - sg) <= tolerance
-                    and abs(blue - sb) <= tolerance
-                ):
-                    pixels[offset] = tr
-                    pixels[offset + 1] = tg
-                    pixels[offset + 2] = tb
-                    break
+        height = min(128, image.height() - row)
+        end = start + height * stride
+        strip = Image.frombytes("RGBA", (image.width(), height), bytes(pixels[start:end]))
+        red, green, blue, alpha = strip.split()
+        remaining = alpha.point([0] + [255] * 255)
+        for tables, target in prepared:
+            mask = ImageChops.darker(red.point(tables[0]), green.point(tables[1]))
+            mask = ImageChops.darker(mask, blue.point(tables[2]))
+            mask = ImageChops.darker(mask, remaining)
+            strip.paste((*target, 255), mask=mask)
+            remaining = ImageChops.subtract(remaining, mask)
+        strip.putalpha(alpha)
+        pixels[start:end] = strip.tobytes()
     return image
 
 

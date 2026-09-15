@@ -753,7 +753,7 @@ class MainWindow(QMainWindow):
             tr("打开图片文件"),
             str(self._current_file.parent if self._current_file else Path.home()),
             tr(
-                "支持的图片 (*.eps *.EPS *.ps *.PS *.png *.PNG *.jpg *.JPG *.jpeg *.JPEG);;所有文件 (*.*)"
+                "支持的图片 (*.eps *.EPS *.ps *.PS *.pdf *.PDF *.png *.PNG *.jpg *.JPG *.jpeg *.JPEG);;所有文件 (*.*)"
             ),
         )
         if filename:
@@ -776,7 +776,7 @@ class MainWindow(QMainWindow):
         if source.suffix.lower() not in SUPPORTED_SOURCE_SUFFIXES:
             self.show_nonfatal_error(
                 tr("打开失败"),
-                tr("请选择 EPS、PS、PNG、JPG 或 JPEG 文件。"),
+                tr("请选择 EPS、PS、PDF、PNG、JPG 或 JPEG 文件。"),
             )
             return
 
@@ -811,7 +811,8 @@ class MainWindow(QMainWindow):
             self._previous_page_action.setEnabled(False)
             self._next_page_action.setEnabled(False)
             self._set_transform_actions_enabled(True)
-            self._select_text_action.setEnabled(source.suffix.lower() in {".eps", ".ps"})
+            self._select_text_action.setEnabled(source.suffix.lower() in {".eps", ".ps", ".pdf"})
+            self._select_text_action.setChecked(self._select_text_action.isEnabled())
             if not self._select_text_action.isEnabled():
                 self._select_text_action.setChecked(False)
             self._file_info_action.setEnabled(True)
@@ -1324,7 +1325,7 @@ class MainWindow(QMainWindow):
     def _show_pdf_export_dialog(self) -> None:
         if self._current_file is None:
             return
-        initial_output = self._current_file.with_suffix(".pdf")
+        initial_output = self._current_file.with_name(f"{self._current_file.stem}_adjusted.pdf")
         filename, _ = QFileDialog.getSaveFileName(
             self,
             tr("另存为 PDF"),
@@ -1410,7 +1411,7 @@ class MainWindow(QMainWindow):
             dpi, accepted = QInputDialog.getInt(
                 self,
                 tr("调色文档导出"),
-                tr("此文档将使用位图页面封装。请选择输出 DPI："),
+                tr("优先保留文字和线条为矢量；复杂渐变等内容可能使用位图。请选择备用渲染 DPI："),
                 dpi,
                 72,
                 600,
@@ -1621,7 +1622,7 @@ class MainWindow(QMainWindow):
         action_texts = (
             (self._save_edits_action, "保存编辑记录"),
             (self._file_info_action, "文件信息"),
-            (self._select_text_action, "选择文本"),
+            (self._select_text_action, "自动选择文本"),
             (self._copy_text_action, "复制选中文本"),
             (self._customize_toolbar_action, "自定义工具栏"),
             (self._open_action, "打开图片(&O)…"),
@@ -1800,7 +1801,7 @@ class MainWindow(QMainWindow):
         content.setHtml(
             f"<h2>{APP_NAME}</h2>"
             f"<p><b>{tr('版本 {version}', version=APP_VERSION)}</b></p>"
-            f"<p>{tr('用于快速查看 EPS/PS/PNG/JPG，并实时刷新当前文件。')}</p>"
+            f"<p>{tr('用于快速查看 EPS/PS/PDF/PNG/JPG，并实时刷新当前文件。')}</p>"
             f"<h3>{tr('使用要点')}</h3>"
             f"<ul><li>{tr('打开或拖入支持的图片；文件重新生成后会自动刷新。')}</li>"
             f"<li>{tr('左右方向键切换相邻文件，上下方向键切换多页文档。')}</li>"
@@ -1809,6 +1810,7 @@ class MainWindow(QMainWindow):
             f"<li>{tr('Ctrl+Z 撤销图像调整；调色窗口提供实时预览和原图对照。')}</li>"
             f"<li>{tr('Ctrl+S 保存旋转和颜色编辑记录；关闭未保存的文件会提示。')}</li>"
             f"<li>{tr('可在设置中选择新窗口或标签页打开；查看菜单支持自定义工具栏和选择文本。')}</li>"
+            f"<li>{tr('文字处拖动选择文本，空白处拖动平移；转为路径的文字不支持选择。')}</li>"
             f"<li>{tr('可并排锁定参考图比较；制作视频前可试播并查看预计时长。')}</li>"
             f"<li>{tr('多页文档可逐页导出 PNG，或将所有页面和相邻图片制作成 MP4/GIF。')}</li></ul>"
             f"<h3>{tr('作者')}</h3>"

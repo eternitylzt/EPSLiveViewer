@@ -231,7 +231,7 @@ class ComparisonDialog(QDialog):
         if path is None:
             path, _filter = QFileDialog.getOpenFileName(
                 self, tr("打开图片文件"), str(pane.source.parent if pane.source else Path.home()),
-                tr("支持的图片 (*.eps *.EPS *.ps *.PS *.png *.PNG *.jpg *.JPG *.jpeg *.JPEG);;所有文件 (*.*)"))
+                tr("支持的图片 (*.eps *.EPS *.ps *.PS *.pdf *.PDF *.png *.PNG *.jpg *.JPG *.jpeg *.JPEG);;所有文件 (*.*)"))
         if path:
             if pane is self.right:
                 self._follow.setChecked(False)

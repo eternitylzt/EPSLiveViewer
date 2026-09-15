@@ -11,11 +11,11 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QLockFile, QPointF, QSettings, QSize, Qt
-from PyQt6.QtGui import QColor, QImage
+from PyQt6.QtGui import QColor, QImage, QPainter, QPdfWriter
 from PyQt6.QtPdf import QPdfDocument
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtTest import QTest
@@ -24,6 +24,7 @@ from animation_preview import AnimationPreviewDialog
 from config import AppConfig, ConfigManager
 from document_state import load_state, save_state, state_path
 from image_transforms import TransformSnapshot, apply_page_transforms
+from eps_renderer import EpsRenderer
 from video_creator import VideoExporter, VideoExportRequest, VideoFrameSource
 from video_dialog import VideoCreationDialog
 from workspace import DesktopController, OpenRequestServer
@@ -152,6 +153,31 @@ class DocumentWorkspaceTests(unittest.TestCase):
                 process.wait(timeout=5)
             router.close()
 
+    def test_pdf_opens_in_independent_tab_without_ghostscript(self):
+        source = self.root / "document.pdf"
+        writer = QPdfWriter(str(source))
+        writer.setResolution(72)
+        painter = QPainter(writer)
+        painter.drawText(30, 50, "PDF text")
+        writer.newPage()
+        painter.drawText(30, 50, "Second page")
+        painter.end()
+        del writer
+        with patch.object(EpsRenderer, "ghostscript_path", new_callable=PropertyMock, return_value=None):
+            self.view.open_eps(source)
+            self.ready(self.view)
+            self.assertEqual(self.view._page_count, 2)
+            self.assertTrue(self.view._select_text_action.isChecked())
+            self.view._next_page_action.trigger()
+            self.assertEqual(self.view._current_page_index, 1)
+            self.view._invert_colors_action.trigger()
+            self.assertTrue(self.view._current_transforms().inverted)
+            self.host.open_file(source, "tabs")
+            second = self.host.tabs.currentWidget()
+            self.ready(second)
+            self.assertFalse(second._current_transforms().inverted)
+            self.assertEqual(second._current_page_index, 0)
+
     def test_multipage_video_matches_preview_and_text_selection(self):
         renderer = self.view._renderer
         if renderer.ghostscript_path is None:
@@ -180,8 +206,12 @@ class DocumentWorkspaceTests(unittest.TestCase):
         QTest.mousePress(selection.viewport(), Qt.MouseButton.LeftButton, pos=start)
         QTest.mouseMove(selection.viewport(), end)
         QTest.mouseRelease(selection.viewport(), Qt.MouseButton.LeftButton, pos=end)
-        selection.copy_selected_text()
-        self.assertIn("Frame 1", APP.clipboard().text())
+        self.assertIn("Frame 1", selection._selection.text())
+        # The host desktop may deny clipboard ownership (e.g. remote sessions).
+        # Verify the actual mouse selection and the text handed to Qt separately.
+        with patch.object(APP.clipboard(), "setText") as copy_text:
+            selection.copy_selected_text()
+            copy_text.assert_called_once_with("Frame 1")
         frames = tuple(VideoFrameSource(source, page) for page in range(1, 4))
         exporter = VideoExporter(renderer)
         document = QPdfDocument(None)

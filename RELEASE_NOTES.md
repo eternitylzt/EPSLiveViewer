@@ -1,4 +1,26 @@
-# EPS Live Viewer 2.2.1
+# EPS Live Viewer 2.3.0
+
+## 2.3.0 中文
+
+- 支持直接阅读 PDF，提供多页浏览、旋转、反色、替换颜色、PNG/PDF/EPS/PS 导出与视频/动图制作。
+- 常见科研图表在反色或替换颜色后可导出保留文字和路径的矢量 PDF/EPS/PS；渐变、特殊色彩空间等复杂内容使用所选 DPI 的兼容位图导出。
+- 修复高 DPI 调色 PNG 导出卡顿；改进线条和文字边缘抗锯齿，以及部分缩放比例下细坐标轴难以看清的问题。
+- EPS/PS/PDF 默认在文字上拖选复制，空白处拖动平移。更新中英文说明与跨平台构建检查。
+- 本版未加入 PDF 文字或图形对象编辑。EPS/PS 仍需单独安装 Ghostscript。
+
+## 2.3.0 English
+
+- Read PDFs directly, including multi-page navigation, rotation, inversion, color replacement, PNG/PDF/EPS/PS export, and MP4/GIF creation.
+- Export recolored PDF/EPS/PS scientific plots with vector text and paths when supported. Complex gradients, special color spaces, and effects use a compatible raster fallback at the selected DPI.
+- Fixed stalled high-DPI recolored PNG export. Improved antialiasing and thin-axis visibility at varying zoom levels.
+- EPS/PS/PDF select text when dragging over text and pan when dragging blank space. Updated bilingual documentation and cross-platform packaging checks.
+- PDF text/graphics object editing is not included. EPS/PS still requires a separate Ghostscript installation.
+
+---
+
+Previous 2.2.1 fixes:
+
+## 2.2.1 中文
 
 ## 2.2.1 中文
 

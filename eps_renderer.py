@@ -148,6 +148,12 @@ class EpsRenderer:
     """
 
     def __init__(self, ghostscript_path: str = "", dpi: int = DEFAULT_DPI) -> None:
+        from PyQt6.QtGui import QImageReader
+        # Our explicit 64-Mpixel checks allow 600 DPI A4 RGBA images (~133 MiB).
+        # Match that policy when opening an exported PNG instead of Qt's
+        # smaller default 128 MiB decoder budget. Do not disable the limit.
+        if 0 < QImageReader.allocationLimit() < 256:
+            QImageReader.setAllocationLimit(256)
         self._settings_lock = threading.Lock()
         self._configured_ghostscript_path = ghostscript_path
         self._default_dpi = self._validated_dpi(dpi)
@@ -566,6 +572,9 @@ class EpsRenderer:
         if not source_path.is_file():
             raise FileNotFoundError(tr("找不到源文件：{path}", path=source_path))
 
+        if source_path.suffix.lower() == ".pdf":
+            return PdfRenderResult(source_path, self._snapshot_source(source_path, cancel_event), time.time())
+
         if source_path.suffix.lower() in RASTER_SOURCE_SUFFIXES:
             rendered = self.render(source_path, dpi=96, cancel_event=cancel_event)
             pdf_path = self.cache.next_path(".pdf")
@@ -821,6 +830,37 @@ class EpsRenderer:
                 self.cache.release(temporary_path)
             self.cache.release(snapshot)
 
+    def render_page_image(self, source, dpi=300, page_number=1, cancel_event=None):
+        """Use preview geometry and bypass the PNG decoder's 128 MiB limit."""
+        from PyQt6 import sip
+        from PyQt6.QtCore import QSize, Qt
+        from PyQt6.QtPdf import QPdfDocument
+
+        converted = self.convert_to_pdf(source, cancel_event)
+        document = QPdfDocument(None)
+        try:
+            if document.load(str(converted.pdf_path)) != QPdfDocument.Error.None_:
+                raise PngExportError(tr("无法读取 PDF 页面，文件可能损坏或需要密码。"))
+            if not 1 <= page_number <= document.pageCount():
+                raise PngExportError(tr("导出页码无效。"))
+            points = document.pagePointSize(page_number - 1)
+            size = QSize(max(1, round(points.width() * dpi / 72)), max(1, round(points.height() * dpi / 72)))
+            if max(size.width(), size.height()) > MAX_EXPORT_EDGE or size.width() * size.height() > MAX_EXPORT_PIXELS:
+                raise PngExportError(tr("PNG 像素尺寸过大，可能耗尽内存；请降低导出 DPI。"))
+            self._raise_if_cancelled(cancel_event)
+            factor = 2 if dpi <= 300 and size.width() * size.height() * 4 <= MAX_EXPORT_PIXELS else 1
+            image = document.render(page_number - 1, QSize(size.width() * factor, size.height() * factor))
+            if image.isNull():
+                raise PngExportError(tr("页面渲染失败。"))
+            self._raise_if_cancelled(cancel_event)
+            if factor > 1:
+                image = image.scaled(size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            return image
+        finally:
+            document.close()
+            sip.delete(document)
+            self.cache.release(converted.pdf_path)
+
     def export_png(
         self,
         source: str | Path,
@@ -832,10 +872,10 @@ class EpsRenderer:
         page_number: int = 1,
         transforms: TransformSnapshot | None = None,
     ) -> Path:
-        """Render and atomically export an EPS or PS file as PNG.
+        """Render and atomically export a supported document as PNG.
 
-        The EPS is first rendered as ``pngalpha``. White/custom backgrounds are
-        composited afterwards, preserving identical geometry for all modes.
+        Prefer recoloring paths before antialiasing; unsupported PDF effects
+        use the bounded pixel-color pipeline. Preview and export share geometry.
         The destination is replaced only after a complete PNG has been written.
         """
         job_dpi = self._validated_dpi(dpi)
@@ -866,67 +906,46 @@ class EpsRenderer:
                 cancel_event,
             )
 
-        executable = self.ghostscript_path
-        if executable is None:
-            raise GhostscriptNotFoundError(
-                tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。")
-            )
-
         export_snapshot: Path | None = None
-        render_result: RenderResult | None = None
         temporary_path: Path | None = None
+        color_pdf: Path | None = None
         try:
-            # Guard and pngalpha must see the same immutable generation. This
-            # also prevents an in-place source rewrite between the page-size
-            # check and rasterization from bypassing the pixel budget.
             export_snapshot = self._snapshot_source(source_path, cancel_event)
-            crop_to_eps_bounds = source_path.suffix.lower() == ".eps"
-            self._guard_png_dimensions(
-                export_snapshot,
-                executable,
-                job_dpi,
-                cancel_event,
-                crop_to_eps_bounds,
-                job_page,
-            )
-            render_result = self.render(
-                export_snapshot,
-                dpi=job_dpi,
-                cancel_event=cancel_event,
-                crop_to_eps_bounds=crop_to_eps_bounds,
-                page_number=job_page,
-            )
+            render_source = export_snapshot
+            vector_colors = False
+            if transforms is not None and transforms.has_color_adjustments():
+                from pdf_colors import recolor_pdf, UnsupportedVectorColor
+                converted = self.convert_to_pdf(export_snapshot, cancel_event)
+                color_pdf = self.cache.next_path(".pdf")
+                try:
+                    recolor_pdf(converted.pdf_path, color_pdf, transforms,
+                                cancel_event=cancel_event, paint_background=False)
+                    render_source = color_pdf
+                    vector_colors = True
+                except UnsupportedVectorColor:
+                    pass  # Pixel fallback handles gradients/patterns consistently.
+                finally:
+                    self.cache.release(converted.pdf_path)
+            source_image = self.render_page_image(render_source, job_dpi, job_page, cancel_event)
             self._raise_if_cancelled(cancel_event)
 
             # QImage is reentrant and safe in worker threads. Import lazily so
             # renderer diagnostics can run before a QApplication exists.
-            from PyQt6.QtGui import QColor, QImage, QImageReader, QPainter
-
-            reader = QImageReader(str(render_result.png_path), b"PNG")
-            image_size = reader.size()
-            if (
-                not image_size.isValid()
-                or image_size.width() > MAX_EXPORT_EDGE
-                or image_size.height() > MAX_EXPORT_EDGE
-                or image_size.width() * image_size.height() > MAX_EXPORT_PIXELS
-            ):
-                raise PngExportError(
-                    tr("PNG 像素尺寸过大，可能耗尽内存；请降低导出 DPI。")
-                )
-            source_image = reader.read()
-            if source_image.isNull():
-                raise PngExportError(tr("Ghostscript 输出的 PNG 无法读取。"))
+            from PyQt6.QtGui import QColor, QImage, QPainter
 
             image_to_save = source_image
             if mode != "transparent":
                 composed = QImage(source_image.size(), QImage.Format.Format_ARGB32)
-                composed.fill(QColor(color))
+                from image_transforms import adjusted_color
+                backdrop = (adjusted_color(QColor(color), transforms.inverted, transforms.replacements)
+                            if vector_colors else QColor(color))
+                composed.fill(backdrop)
                 painter = QPainter(composed)
                 painter.drawImage(0, 0, source_image)
                 painter.end()
                 image_to_save = composed
 
-            if transforms is not None:
+            if transforms is not None and not vector_colors:
                 image_to_save = apply_page_transforms(
                     image_to_save,
                     transforms,
@@ -974,10 +993,10 @@ class EpsRenderer:
                     temporary_path.unlink(missing_ok=True)
                 except OSError:
                     pass
-            if render_result is not None:
-                self.cache.release(render_result.png_path)
             if export_snapshot is not None:
                 self.cache.release(export_snapshot)
+            if color_pdf is not None:
+                self.cache.release(color_pdf)
 
     def export_png_pages(
         self,
@@ -1155,12 +1174,13 @@ class EpsRenderer:
         self,
         pages: list[tuple[object, int]],
         output: Path,
+        page_count=None,
     ) -> None:
         """Write image pages into a compact PostScript staging document."""
         try:
             with output.open("wb") as stream:
                 stream.write(b"%!PS-Adobe-3.0\n")
-                stream.write(f"%%Pages: {len(pages)}\n%%EndComments\n".encode("ascii"))
+                stream.write(f"%%Pages: {len(pages) if page_count is None else page_count}\n%%EndComments\n".encode("ascii"))
                 for index, (image, dpi) in enumerate(pages, 1):
                     width = image.width()
                     height = image.height()
@@ -1204,21 +1224,10 @@ class EpsRenderer:
         from PyQt6.QtGui import QColor, QImage, QImageReader, QPainter
 
         mode, color = self._validate_background(background, background_color)
-        pages: list[tuple[object, int]] = []
-        for page_number in page_numbers:
-            self._raise_if_cancelled(cancel_event)
-            rendered = self.render(
-                source,
-                dpi=dpi,
-                cancel_event=cancel_event,
-                guard_dimensions=True,
-                page_number=page_number,
-            )
-            try:
-                reader = QImageReader(str(rendered.png_path), b"PNG")
-                image = reader.read()
-                if image.isNull():
-                    raise EpsRenderError(tr("Ghostscript 输出的页面图像无法读取。"))
+        def pages():
+            for page_number in page_numbers:
+                self._raise_if_cancelled(cancel_event)
+                image = self.render_page_image(source, dpi, page_number, cancel_event)
                 # PostScript cannot carry the alpha channel used by the preview.
                 # Transparent mode therefore uses white, which inversion turns
                 # into the expected dark background.
@@ -1228,23 +1237,14 @@ class EpsRenderer:
                 painter = QPainter(composed)
                 painter.drawImage(0, 0, image)
                 painter.end()
-                pages.append(
-                    (
-                        apply_page_transforms(
-                            composed,
-                            transforms,
-                            page_number,
-                            cancel_event
-                            if isinstance(cancel_event, threading.Event)
-                            else None,
-                        ),
-                        dpi,
-                    )
-                )
-            finally:
-                self.cache.release(rendered.png_path)
+                image = QImage()
+                yield apply_page_transforms(composed, transforms, page_number, cancel_event), dpi
         output = self.cache.next_path(".ps")
-        self._write_raster_postscript(pages, output)
+        try:
+            self._write_raster_postscript(pages(), output, len(page_numbers))
+        except Exception:
+            self.cache.release(output)
+            raise
         return output
 
     def export_document(
@@ -1259,7 +1259,7 @@ class EpsRenderer:
         background_color: str = "#FFFFFF",
         cancel_event: _CancellationEvent | None = None,
     ) -> Path:
-        """Export transformed PDF/PS/EPS; replacements use raster-backed pages."""
+        """Recolor vector objects; complex effects use the declared raster fallback."""
         source_path = Path(source).resolve()
         destination = Path(target).expanduser().resolve()
         if page_count < 1 or not 1 <= current_page <= page_count:
@@ -1268,11 +1268,9 @@ class EpsRenderer:
             raise EpsRenderError(tr("输出路径是文件夹，无法保存文档。"))
         destination.parent.mkdir(parents=True, exist_ok=True)
         executable = self.ghostscript_path
-        if executable is None:
-            raise GhostscriptNotFoundError(
-                tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。")
-            )
-        device = self._document_device(destination.suffix, executable)
+        if destination.suffix.lower() != ".pdf" and executable is None:
+            raise GhostscriptNotFoundError(tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。"))
+        device = "pdfwrite" if destination.suffix.lower() == ".pdf" else self._document_device(destination.suffix, executable)
 
         page_numbers = (
             [current_page]
@@ -1282,10 +1280,22 @@ class EpsRenderer:
         staging_input: Path | None = None
         temporary: Path | None = None
         try:
-            if (
-                transforms.replacements
-                or source_path.suffix.lower() in RASTER_SOURCE_SUFFIXES
-            ):
+            from pdf_colors import recolor_pdf, UnsupportedVectorColor
+            converted = self.convert_to_pdf(source_path, cancel_event)
+            staging_input = self.cache.next_path(".pdf")
+            rasterized = False
+            try:
+                recolor_pdf(converted.pdf_path, staging_input, transforms,
+                            background, background_color, cancel_event)
+            except UnsupportedVectorColor:
+                self.cache.release(staging_input)
+                staging_input = None
+                rasterized = True
+            finally:
+                self.cache.release(converted.pdf_path)
+            if rasterized:
+                if executable is None:
+                    raise EpsRenderError(tr("此 PDF 含复杂配色，请安装 Ghostscript 以导出兼容的调色文档，或另存为 PNG。"))
                 staging_input = self._rasterized_postscript(
                     source_path,
                     transforms,
@@ -1295,20 +1305,6 @@ class EpsRenderer:
                     background_color,
                     cancel_event,
                 )
-            else:
-                # PDF gets a viewer-compatible Difference blend. PostScript
-                # output instead uses its native transfer function, which
-                # avoids rasterizing the page while preserving the inversion.
-                strategy = (
-                    "blend" if destination.suffix.lower() == ".pdf" else "transfer"
-                )
-                staging_input = self._transformed_vector_pdf(
-                    source_path,
-                    transforms,
-                    page_count,
-                    cancel_event,
-                    inversion_strategy=strategy,
-                )
 
             with tempfile.NamedTemporaryFile(
                 prefix=f".{destination.stem}_",
@@ -1317,13 +1313,19 @@ class EpsRenderer:
                 delete=False,
             ) as stream:
                 temporary = Path(stream.name)
+            if device == "pdfwrite" and not rasterized:
+                shutil.copyfile(staging_input, temporary)
+                self._raise_if_cancelled(cancel_event)
+                os.replace(temporary, destination)
+                temporary = None
+                return destination
             command = [
                 str(executable),
                 "-dSAFER",
                 "-dBATCH",
                 "-dNOPAUSE",
                 *( [f"-dFirstPage={current_page}", f"-dLastPage={current_page}"]
-                   if destination.suffix.lower() == ".eps" and not transforms.replacements
+                   if destination.suffix.lower() == ".eps" and not rasterized
                    else [] ),
                 f"-sDEVICE={device}",
                 "-dAutoRotatePages=/None",
