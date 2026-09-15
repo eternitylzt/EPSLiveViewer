@@ -7,11 +7,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, PropertyMock
 
-from PyQt6.QtCore import QEvent, QMarginsF, QPoint, QPointF, QRectF, QSizeF, Qt
-from PyQt6.QtGui import QColor, QImage, QImageReader, QMouseEvent, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QImage, QImageReader, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtTest import QTest
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from eps_renderer import EpsRenderer
 from image_transforms import ColorReplacement, TransformSnapshot, apply_color_adjustments
@@ -23,26 +24,32 @@ APP = QApplication.instance() or QApplication([])
 
 
 def make_pdf(path, width=595, height=842):
-    writer = QPdfWriter(str(path))
-    writer.setResolution(72)
-    size = QPageSize(QSizeF(width, height), QPageSize.Unit.Point, "Test", QPageSize.SizeMatchPolicy.ExactMatch)
-    writer.setPageLayout(QPageLayout(size, QPageLayout.Orientation.Portrait, QMarginsF(0, 0, 0, 0)))
-    painter = QPainter(writer)
-    painter.fillRect(QRectF(0, 0, width, height), QColor("white"))
-    painter.setPen(QColor("black"))
-    painter.drawText(QRectF(25, 25, 200, 30), "Selectable text")
-    painter.setPen(QPen(QColor("black"), 0.5))
-    painter.drawLine(50, 100, 50, 400)
-    painter.drawLine(50, 400, 450, 400)
-    painter.setPen(QPen(QColor("black"), 0))
-    painter.drawLine(200, 100, 200, 400)
-    painter.setPen(QPen(QColor("black"), 0.5))
-    painter.drawLine(QPointF(width - 0.25, 100), QPointF(width - 0.25, 400))
-    writer.newPage()
-    painter.fillRect(QRectF(0, 0, width, height), QColor("white"))
-    painter.setPen(QColor("red"))
-    painter.drawText(QRectF(25, 25, 200, 30), "Second page")
-    painter.end()
+    # Qt's PDF writer can turn text into glyph outlines if a CI runner lacks
+    # desktop fonts. A standard PDF Type 1 font makes text extraction and
+    # selection deterministic across Windows, Linux, and macOS.
+    writer = PdfWriter()
+    font = DictionaryObject({NameObject("/Type"): NameObject("/Font"),
+                             NameObject("/Subtype"): NameObject("/Type1"),
+                             NameObject("/BaseFont"): NameObject("/Helvetica")})
+    for number, label in enumerate(("Selectable text", "Second page")):
+        page = writer.add_blank_page(width=width, height=height)
+        page[NameObject("/Resources")] = DictionaryObject({
+            NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
+        paint = (f"1 1 1 rg 0 0 {width} {height} re f\n"
+                 f"{'0 0 0' if number == 0 else '1 0 0'} rg "
+                 f"BT /F1 14 Tf 25 790 Td ({label}) Tj ET\n")
+        if number == 0:
+            # PDF coordinates start at the bottom; Qt's viewport starts at top.
+            paint += ("0 0 0 RG 0.5 w 50 442 m 50 742 l S "
+                      "50 442 m 450 442 l S "
+                      "0 w 200 442 m 200 742 l S "
+                      f"0.5 w {width - 0.25} 442 m {width - 0.25} 742 l S\n")
+        stream = DecodedStreamObject()
+        stream.set_data(paint.encode("ascii"))
+        page[NameObject("/Contents")] = writer._add_object(stream)
+    with open(path, "wb") as output:
+        writer.write(output)
+    writer.close()
 
 
 class PdfColorExportTests(unittest.TestCase):
@@ -100,6 +107,7 @@ class PdfColorExportTests(unittest.TestCase):
         from PyQt6.QtCore import QSize
         reader.setScaledSize(QSize(595, 842))
         image = reader.read()
+        reader.setFileName("")
         self.assertFalse(image.isNull())
         self.assertGreater(image.pixelColor(50, 250).blue(), image.pixelColor(50, 250).red())
         exporter = VideoExporter(self.renderer)
