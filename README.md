@@ -2,9 +2,9 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-当前版本：**2.2.0**。
+当前版本：**2.2.1**。
 
-Apple Silicon 的 2.2.0 DMG 提供同版本菜单/工具栏交互修复。若旧包出现按钮无法点击，请从 Release 重新下载 `EPSLiveViewer-macOS-arm64.dmg` 并替换应用；同版本替换不会触发“检查更新”的新版本提示。
+2.2.1 修复了 Apple Silicon Mac 上菜单栏和工具栏可能无法点击的问题。受影响用户请下载新的 `EPSLiveViewer-macOS-arm64.dmg` 并替换旧应用。
 
 EPS Live Viewer 是面向科研绘图快速迭代的轻量级跨平台桌面查看器。它能实时查看 EPS/PS，也能直接打开 PNG/JPG，在同一个界面中完成相邻文件比较、多页浏览、旋转、反色、替换颜色、图片导出和视频制作。
 

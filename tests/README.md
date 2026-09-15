@@ -1,6 +1,6 @@
 # Packaging regression check
 
-For local 2.2.0, `test_document_workspace.py` checks independent tab edits and
+For 2.2.1, `test_document_workspace.py` checks independent tab edits and
 shortcuts, external-process open requests, sidecar round trips, close cancellation,
 multi-page comparison, text extraction, and actual decoded MP4 frame colors.
 When available it compares all pages of the user's `20241001.eps` against the
@@ -57,7 +57,7 @@ on the development machine; subsequent calls reuse it until application exit.
 The changes target Windows packaging. Existing macOS/Linux packaging is retained;
 these platforms were not rebuilt for this optimization. Passing this check does not
 replace testing on every supported OS and graphics-driver combination.
-# macOS 2.2.0 interaction hotfix
+# macOS 2.2.1 interaction fix
 
 `tests/test_desktop_controls.py` uses mouse clicks on toolbar buttons, menus,
 recent files and tabs; it also opens/closes File Information and checks subsequent

@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing or new release tag
         required: true
-        default: eps-live-viewer-v2.2.0
+        default: eps-live-viewer-v2.2.1
       target:
         description: Build all platforms or replace only the Apple Silicon DMG
         type: choice

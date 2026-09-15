@@ -1,4 +1,20 @@
-# EPS Live Viewer 2.2.0
+# EPS Live Viewer 2.2.1
+
+## 2.2.1 中文
+
+- 修复 Apple Silicon Mac 上标签页窗口激活时，菜单栏与工具栏点击可能失效的问题。
+- 调整标签页内文档窗口和菜单栏的创建顺序，避免 macOS Cocoa 建立错误的窗口/菜单归属。
+- 增加 macOS Cocoa 原生鼠标交互检查，覆盖工具栏、菜单、最近文件、标签页及弹窗关闭后的继续操作。
+
+## 2.2.1 English
+
+- Fixed menu bar and toolbar clicks that could stop responding when a tabbed window was activated on Apple Silicon Macs.
+- Established embedded document windows and their menu bars before Cocoa creates native window/menu ownership.
+- Added native macOS Cocoa mouse interaction checks for toolbars, menus, recent files, tabs, and controls after closing dialogs.
+
+---
+
+Previous 2.2.0 improvements:
 
 ## 2.2.0 中文
 
