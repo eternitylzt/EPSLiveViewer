@@ -33,10 +33,8 @@ class WorkspaceWindow(QMainWindow):
         self.addAction(close)
 
     def add_document(self, source=None):
-        view = MainWindow(self.controller.config_manager)
+        view = MainWindow(self.controller.config_manager, self.tabs)
         view._host = self
-        view.setWindowFlags(Qt.WindowType.Widget)
-        view.menuBar().setNativeMenuBar(False)
         # Scope shortcuts to this document, including its menu actions. Hidden
         # tabs must never consume shortcuts belonging to the visible document.
         for action in view.findChildren(QAction):
@@ -118,7 +116,13 @@ class WorkspaceWindow(QMainWindow):
     def event(self, event):
         from PyQt6.QtCore import QEvent
         if event.type() == QEvent.Type.WindowActivate and hasattr(self, "tabs"):
-            self._activated(self.tabs.currentIndex())
+            # Cocoa activates windows while dispatching menu/button input.
+            # Rebuilding menus or forcing focus here can cancel that very click
+            # (and invalidate actions in an open Recent Files submenu).
+            self.controller.active_window = self
+            view = self.tabs.currentWidget()
+            if view is not None:
+                set_language(view._config.language)
         return super().event(event)
 
 

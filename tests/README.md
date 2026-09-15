@@ -57,3 +57,21 @@ on the development machine; subsequent calls reuse it until application exit.
 The changes target Windows packaging. Existing macOS/Linux packaging is retained;
 these platforms were not rebuilt for this optimization. Passing this check does not
 replace testing on every supported OS and graphics-driver combination.
+# macOS 2.2.0 interaction hotfix
+
+`tests/test_desktop_controls.py` uses mouse clicks on toolbar buttons, menus,
+recent files and tabs; it also opens/closes File Information and checks subsequent
+input. The activation regression fails against the original 2.2.0 workspace and
+passes with the fix. Windows source regression checks passed (20 tests).
+
+For macOS, the release workflow runs the checks using `QT_QPA_PLATFORM=cocoa`
+and `EPS_REQUIRE_COCOA=1`, both from source and a packaged test executable.
+Offscreen runs alone do not validate macOS menu interaction. Screenshots are
+saved as workflow artifacts. Passing automated Cocoa checks still needs user
+confirmation on the affected Mac/macOS combination.
+
+User check after replacing the app: open an EPS from Finder; click Zoom and
+Invert; open Settings and File Information; switch tabs and open Recent Files;
+switch to another app and back, then repeat. If any control fails, report the
+macOS version, Mac chip, language and whether the failure follows a dialog or tab
+switch. The same-version repair replaces only the arm64 DMG and its checksum.

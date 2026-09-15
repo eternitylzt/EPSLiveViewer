@@ -4,6 +4,8 @@
 
 Current version: **2.2.0**.
 
+The Apple Silicon 2.2.0 DMG includes a same-version menu/toolbar interaction fix. If the old package ignores clicks, download `EPSLiveViewer-macOS-arm64.dmg` again from the Release and replace the app. Check for Updates does not report a new version for a same-version package replacement.
+
 EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scientific plotting workflows. It live-previews EPS/PS files, opens PNG/JPG directly, and provides neighboring-file comparison, multi-page navigation, rotation, color inversion/replacement, export, and video creation in one interface.
 
 ## Main features

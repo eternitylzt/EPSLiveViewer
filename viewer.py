@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QLabel,
     QMainWindow,
+    QMenuBar,
     QMessageBox,
     QInputDialog,
     QProgressDialog,
@@ -305,8 +306,15 @@ class MainWindow(QMainWindow):
     document_state_changed = pyqtSignal(object, object, int)
     caption_changed = pyqtSignal()
 
-    def __init__(self, config_manager: ConfigManager) -> None:
-        super().__init__()
+    def __init__(self, config_manager: ConfigManager, parent=None) -> None:
+        super().__init__(parent)
+        if parent is not None:
+            # Establish the child widget before Cocoa creates native menus or
+            # window handles. Converting a populated top-level window is too late.
+            self.setWindowFlags(Qt.WindowType.Widget)
+            menu_bar = QMenuBar(self)
+            menu_bar.setNativeMenuBar(False)
+            self.setMenuBar(menu_bar)
         self._config_manager = config_manager
         self._config: AppConfig = config_manager.load()
         set_language(self._config.language)

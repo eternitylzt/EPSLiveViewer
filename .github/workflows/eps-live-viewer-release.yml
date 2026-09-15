@@ -6,7 +6,12 @@ on:
       release_tag:
         description: Existing or new release tag
         required: true
-        default: eps-live-viewer-v2.1.0
+        default: eps-live-viewer-v2.2.0
+      target:
+        description: Build all platforms or replace only the Apple Silicon DMG
+        type: choice
+        options: [all, macos-arm64]
+        default: all
   push:
     tags:
       - "eps-live-viewer-v*"
@@ -20,19 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: windows-latest
-            target: Windows x64
-            artifact: EPSLiveViewer-Windows-x64.zip
-          - runner: ubuntu-latest
-            target: Linux x64
-            artifact: EPSLiveViewer-Linux-x64.tar.gz
-          - runner: macos-latest
-            target: macOS Apple Silicon
-            artifact: EPSLiveViewer-macOS-arm64.dmg
-          - runner: macos-15-intel
-            target: macOS Intel
-            artifact: EPSLiveViewer-macOS-x64.dmg
+        include: ${{ fromJSON(github.event.inputs.target == 'macos-arm64' && '[{"runner":"macos-latest","target":"macOS Apple Silicon","artifact":"EPSLiveViewer-macOS-arm64.dmg"}]' || '[{"runner":"windows-latest","target":"Windows x64","artifact":"EPSLiveViewer-Windows-x64.zip"},{"runner":"ubuntu-latest","target":"Linux x64","artifact":"EPSLiveViewer-Linux-x64.tar.gz"},{"runner":"macos-latest","target":"macOS Apple Silicon","artifact":"EPSLiveViewer-macOS-arm64.dmg"},{"runner":"macos-15-intel","target":"macOS Intel","artifact":"EPSLiveViewer-macOS-x64.dmg"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
 
@@ -60,6 +53,37 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Check native macOS mouse interaction
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: cocoa
+          EPS_REQUIRE_COCOA: "1"
+          EPS_CONTROL_SCREENSHOTS: control-screenshots
+          PYTHONPATH: .
+        run: python tests/test_desktop_controls.py -v
+
+      - name: Check packaged macOS controls
+        if: runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: cocoa
+          EPS_REQUIRE_COCOA: "1"
+          EPS_CONTROL_SCREENSHOTS: packaged-control-screenshots
+        run: |
+          python -m PyInstaller --noconfirm --onedir --console \
+            --name ControlsSmoke --paths . --additional-hooks-dir hooks \
+            --distpath control-dist --workpath control-build tests/test_desktop_controls.py
+          control-dist/ControlsSmoke/ControlsSmoke -v
+
+      - name: Preserve interaction screenshots
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: controls-${{ matrix.runner }}
+          path: |
+            control-screenshots/
+            packaged-control-screenshots/
+          if-no-files-found: ignore
 
       - name: Build Windows executable
         if: runner.os == 'Windows'
@@ -182,16 +206,36 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          pattern: EPSLiveViewer-*
           merge-multiple: true
 
       - name: Create checksums
+        if: github.event.inputs.target != 'macos-arm64'
         run: sha256sum release-assets/* > release-assets/SHA256SUMS.txt
+
+      - name: Preserve checksums for unchanged packages
+        if: github.event.inputs.target == 'macos-arm64'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          gh release download "$RELEASE_TAG" --pattern SHA256SUMS.txt --dir release-assets
+          python scripts/update_asset_checksum.py release-assets/SHA256SUMS.txt \
+            release-assets/EPSLiveViewer-macOS-arm64.dmg
 
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+          RELEASE_TARGET: ${{ github.event.inputs.target }}
         run: |
+          if [[ "$RELEASE_TARGET" == "macos-arm64" ]]; then
+            gh release view "$RELEASE_TAG" >/dev/null
+            gh release upload "$RELEASE_TAG" \
+              release-assets/EPSLiveViewer-macOS-arm64.dmg \
+              release-assets/SHA256SUMS.txt --clobber
+            exit 0
+          fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release delete-asset "$RELEASE_TAG" EPSLiveViewer-macOS-arm64.zip --yes || true
             gh release delete-asset "$RELEASE_TAG" EPSLiveViewer-macOS-x64.zip --yes || true
