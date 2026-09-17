@@ -6,12 +6,14 @@ from pathlib import Path
 
 from PyQt6.QtCore import QLockFile, QStandardPaths, Qt, QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTabBar, QToolButton, QStyle, QStackedWidget, QSizePolicy
+from PyQt6.QtGui import QAction, QKeySequence, QIcon
 
 from config import APP_NAME
 from i18n import set_language, tr
 from viewer import MainWindow
+from window_geometry import fit_initial_window
+from branding import tool_icon
 
 
 class WorkspaceWindow(QMainWindow):
@@ -19,11 +21,27 @@ class WorkspaceWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.resize(1250, 850)
+        fit_initial_window(self,1250,850)
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
+        self.tabs.setTabBarAutoHide(False)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
+        self.tabs.tabBar().setExpanding(False)
+        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideMiddle)
+        self.tabs.setStyleSheet("QTabBar::tab { min-width: 100px; max-width: 210px; padding: 7px 14px; margin: 2px 2px 0 0; border-bottom: 3px solid transparent; } QTabBar::tab:selected { border-bottom: 3px solid #20B8AC; background: palette(base); font-weight: 600; } QTabBar::tab:!selected { background: palette(button); }")
+        self.home_button = QToolButton()
+        self.home_button.setIcon(tool_icon("home",self.palette().color(self.foregroundRole())))
+        self.home_button.setToolTip("Home / 首页")
+        self.home_button.setAccessibleName("Home")
+        self.home_button.setAutoRaise(True)
+        tab_height = self.tabs.tabBar().sizeHint().height()
+        self.home_button.setFixedSize(max(34,tab_height),max(30,tab_height))
+        self.home_button.clicked.connect(self.show_home)
+        self.tabs.setCornerWidget(self.home_button,Qt.Corner.TopLeftCorner)
+        self._menu_stack = QStackedWidget()
+        self._menu_stack.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
+        self.setMenuWidget(self._menu_stack)
         self.tabs.currentChanged.connect(self._activated)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.setCentralWidget(self.tabs)
@@ -35,6 +53,10 @@ class WorkspaceWindow(QMainWindow):
     def add_document(self, source=None):
         view = MainWindow(self.controller.config_manager, self.tabs)
         view._host = self
+        bar = view.menuBar()
+        bar.setParent(self._menu_stack)
+        view._shared_menu_bar = bar
+        self._menu_stack.addWidget(bar)
         # Scope shortcuts to this document, including its menu actions. Hidden
         # tabs must never consume shortcuts belonging to the visible document.
         for action in view.findChildren(QAction):
@@ -48,22 +70,52 @@ class WorkspaceWindow(QMainWindow):
         if source is not None:
             view.open_eps(source)
         self._caption(view)
+        if source is not None:
+            QTimer.singleShot(0,self._align_home_button)
+        return view
+
+    def _align_home_button(self):
+        height=max(30,self.tabs.tabBar().height(),self.tabs.tabBar().sizeHint().height())
+        self.home_button.setFixedSize(height,height)
+
+    def show_home(self):
+        for index in range(self.tabs.count()):
+            if self.tabs.widget(index)._current_file is None:
+                self.tabs.setCurrentIndex(index)
+                return self.tabs.widget(index)
+        view = self.add_document()
+        self.tabs.tabBar().moveTab(self.tabs.indexOf(view),0)
         return view
 
     def _caption(self, view):
         index = self.tabs.indexOf(view)
         if index < 0:
             return
-        title = view._current_file.name if view._current_file else tr("未打开文件")
+        title = view._current_file.name if view._current_file else tr("首页")
         title += " *" if view.is_modified() else ""
         self.tabs.setTabText(index, title)
         self.tabs.setTabToolTip(index, str(view._current_file or ""))
+        bar = self.tabs.tabBar()
+        if view._current_file is None:
+            for side in (QTabBar.ButtonPosition.LeftSide,QTabBar.ButtonPosition.RightSide):
+                button = bar.tabButton(index,side)
+                if button is not None:
+                    button.hide()
+            self.tabs.tabBar().setTabVisible(index,False)
+        else:
+            self.tabs.tabBar().setTabVisible(index,True)
+            self.tabs.setTabIcon(index,QIcon())
+            for side in (QTabBar.ButtonPosition.LeftSide,QTabBar.ButtonPosition.RightSide):
+                button = bar.tabButton(index,side)
+                if button is not None:
+                    button.show()
         if index == self.tabs.currentIndex():
             self.setWindowTitle(f"{APP_NAME} — {title}")
 
     def _activated(self, index):
         view = self.tabs.widget(index)
         if view is not None:
+            self._menu_stack.setCurrentWidget(view.menuBar())
             set_language(view._config.language)
             view._retranslate_ui()
             self._caption(view)
@@ -87,12 +139,16 @@ class WorkspaceWindow(QMainWindow):
 
     def close_tab(self, index):
         view = self.tabs.widget(index)
+        if view is not None and view._current_file is None:
+            return
         if view is None or not view.close():
             return
         self.tabs.removeTab(index)
+        self._menu_stack.removeWidget(view.menuBar())
+        view.menuBar().deleteLater()
         view.deleteLater()
         if not self.tabs.count():
-            self.close()
+            self.add_document()
 
     def closeEvent(self, event):
         # Ask about every dirty document before stopping any view's workers.
@@ -136,9 +192,24 @@ class DesktopController:
         window = WorkspaceWindow(self)
         self.windows.append(window)
         window.add_document(source)
-        window.show()
+        if self.config_manager.load().start_maximized:
+            window.showMaximized()
+        else:
+            window.show()
         self.active_window = window
         return window
+
+    def apply_settings(self, config, exclude=None):
+        for window in self.windows:
+            for index in range(window.tabs.count()):
+                view = window.tabs.widget(index)
+                if view is not exclude:
+                    view._apply_config(config)
+
+    def refresh_recent_files(self):
+        for window in self.windows:
+            for index in range(window.tabs.count()):
+                window.tabs.widget(index)._update_recent_menu()
 
     def open_files(self, filenames):
         mode = self.config_manager.load().open_mode
@@ -147,7 +218,7 @@ class DesktopController:
             if window is not None and (mode == "tabs" or window.tabs.currentWidget()._current_file is None):
                 current = window.tabs.currentWidget()
                 if current._current_file is None:
-                    current.open_eps(filename)
+                    window.add_document(filename)
                 else:
                     window.add_document(filename)
                 window.showNormal() if window.isMinimized() else window.show()

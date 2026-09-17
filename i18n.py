@@ -17,6 +17,11 @@ def current_language() -> str:
     return _language
 
 
+def bilingual(chinese: str, english: str) -> str:
+    """Compact bilingual labels for optional self-contained workspaces."""
+    return english if _language == "en" else chinese
+
+
 def tr(source: str, /, **values: Any) -> str:
     """Translate a Chinese source string and safely substitute named values."""
     template = _ENGLISH.get(source, source) if _language == "en" else source
@@ -24,6 +29,8 @@ def tr(source: str, /, **values: Any) -> str:
 
 
 _ENGLISH = {
+    "首页": "Home",
+    "编辑文字…": "Edit Text…",
     "用于快速查看 EPS/PS/PDF/PNG/JPG，并实时刷新当前文件。": "Quickly preview EPS/PS/PDF/PNG/JPG and live-refresh the current file.",
     "文字处拖动选择文本，空白处拖动平移；转为路径的文字不支持选择。": "Drag over text to select it, or over blank space to pan. Outlined text cannot be selected.",
     "支持 EPS、PS、PDF、PNG、JPG/JPEG；多页文件会逐页展开。左侧帧按显示顺序写入，可将不需要的帧移到右侧。": "Supports EPS, PS, PDF, PNG, and JPG/JPEG. Multi-page documents expand into individual frames. Frames on the left are exported in order; move unwanted frames to the right.",
@@ -198,6 +205,7 @@ _ENGLISH = {
     "PDF 文件 (*.pdf)": "PDF files (*.pdf)",
     "覆盖 PDF 文件": "Overwrite PDF File",
     "另存为 EPS/PS": "Save as EPS/PS",
+    "另存为 EPS/PS(&E)…": "Save as &EPS/PS…",
     "PostScript 文件 (*.ps);;EPS 文件 (*.eps)": "PostScript files (*.ps);;EPS files (*.eps)",
     "无法导出": "Cannot Export",
     "输出文件不能覆盖当前打开的源文件。": "The output file cannot overwrite the currently open source file.",

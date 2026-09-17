@@ -3,17 +3,47 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QImage
+from PyQt6.QtGui import QColor, QImage, QTextDocument
 from PyQt6.QtWidgets import (
     QColorDialog, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton,
     QSpinBox, QSplitter, QVBoxLayout, QWidget,
+    QGridLayout, QToolButton, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
 )
 
 from background_tasks import TaskRunner
 from i18n import tr
 from image_transforms import ColorReplacement, adjusted_color, apply_color_adjustments, rotate_image
 from preview_widgets import ImagePreview
+from document_palette import sampled_palette
+from i18n import bilingual as L
+
+
+class ColorMappingDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        mapping = index.data(Qt.ItemDataRole.UserRole)
+        if mapping is None:
+            return super().paint(painter, option, index)
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        opt.widget.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+        def chip(value):
+            backing = "#243447" if QColor(value).lightness() > 160 else "#F5F7FA"
+            return f'<span style="color:{value};background-color:{backing};font-weight:bold;"> ■ {value} </span>'
+        doc = QTextDocument()
+        doc.setDefaultFont(option.font)
+        doc.setHtml(chip(mapping.source) + " → " + chip(mapping.target) + f" ±{mapping.tolerance}")
+        painter.save()
+        painter.setClipRect(option.rect)
+        painter.translate(option.rect.topLeft())
+        doc.drawContents(painter)
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option,index)
+        size.setHeight(max(30,size.height()))
+        return size
 
 
 class ColorReplacementDialog(QDialog):
@@ -21,12 +51,16 @@ class ColorReplacementDialog(QDialog):
 
     def __init__(self, replacements, parent: QWidget | None = None, *,
                  preview_loader=None, inverted=False, rotation=0,
-                 background_mode="white", background_color="#FFFFFF"):
+                 background_mode="white", background_color="#FFFFFF", palette_loader=None, default_tolerance=8):
         super().__init__(parent)
         self.setWindowTitle(tr("替换颜色"))
         self.resize(960 if preview_loader else 620, 560)
         self._runner = TaskRunner(self)
         self._loader = preview_loader
+        self._palette_loader = palette_loader
+        self._default_tolerance = default_tolerance
+        self._palette = []
+        self._sampled = []
         self._inverted, self._rotation = inverted, rotation
         self._background_mode = background_mode
         self._background_color = "#FFFFFF" if background_mode == "white" else background_color
@@ -47,6 +81,7 @@ class ColorReplacementDialog(QDialog):
         left = QVBoxLayout(left_widget)
         left.setContentsMargins(0, 0, 0, 0)
         self._list = QListWidget()
+        self._list.setItemDelegate(ColorMappingDelegate(self._list))
         self._list.currentItemChanged.connect(self._selection_changed)
         left.addWidget(self._list, 1)
         controls = QHBoxLayout()
@@ -170,6 +205,45 @@ class ColorReplacementDialog(QDialog):
     def _choose_field(self, field):
         if not field.isEnabled():
             return
+        if self._palette or self._sampled:
+            self._choose_palette(field)
+            return
+        self._choose_any_color(field)
+
+    def _choose_palette(self, field):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(L("文档颜色", "Document Colors"))
+        layout = QVBoxLayout(dialog)
+        source = field is self._source_edit
+        label = QLabel(L("源颜色按反色之后、颜色替换之前的状态显示。" if source else "原始文档颜色；也可选择任意颜色。",
+                          "Source colors are shown after inversion, before replacement." if source else "Original document colors; any custom color is also available."))
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        for title, palette in ((L("当前页绘制色（可识别部分）", "Page paint colors (recognized subset)"),self._palette),
+                               (L("预览采样色（可能包含抗锯齿过渡色）", "Preview samples (may include antialiasing colors)"),self._sampled)):
+            if not palette:
+                continue
+            layout.addWidget(QLabel(title))
+            grid = QGridLayout()
+            for i, raw in enumerate(palette):
+                color = QColor(raw)
+                if source:
+                    color = adjusted_color(color,self._inverted,())
+                value = color.name().upper()
+                button = QToolButton()
+                button.setFixedSize(34,30)
+                button.setToolTip(value)
+                button.setAccessibleName(value)
+                button.setStyleSheet(f"background-color:{value};border:1px solid #82909D;border-radius:4px;")
+                button.clicked.connect(lambda checked=False,c=value:(field.setText(c),dialog.accept()))
+                grid.addWidget(button,i//8,i%8)
+            layout.addLayout(grid)
+        any_color = QPushButton(L("任意颜色 / RGB / HEX…", "Custom Color / RGB / HEX…"))
+        any_color.clicked.connect(lambda:(dialog.accept(),self._choose_any_color(field)))
+        layout.addWidget(any_color)
+        dialog.exec()
+
+    def _choose_any_color(self, field):
         previous = field.text()
         picker = QColorDialog(QColor(previous), self)
         picker.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog, True)
@@ -183,7 +257,7 @@ class ColorReplacementDialog(QDialog):
     def _add(self):
         if self._list.count() >= self.MAX_REPLACEMENTS:
             return
-        self._list.addItem(self._item(ColorReplacement("#000000", "#FFFFFF", 8)))
+        self._list.addItem(self._item(ColorReplacement("#000000", "#FFFFFF", self._default_tolerance)))
         self._list.setCurrentRow(self._list.count() - 1)
         self._queue_preview()
 
@@ -206,8 +280,17 @@ class ColorReplacementDialog(QDialog):
             return
         self._status.setText(tr("正在准备预览…"))
         loader, rotation = self._loader, self._rotation
-        self._runner.submit(
-            lambda cancel: rotate_image(loader(cancel), rotation), self._preview_loaded)
+        palette_loader = self._palette_loader
+        def load(cancel):
+            image = rotate_image(loader(cancel), rotation)
+            colors = []
+            if palette_loader and not cancel.is_set():
+                try:
+                    colors = palette_loader()
+                except (ValueError, KeyError, TypeError, OSError):
+                    pass  # Sampling remains available for unsupported paint spaces.
+            return image, colors, sampled_palette(image)
+        self._runner.submit(load, self._preview_loaded)
 
     def _preview_loaded(self, image, error, cancelled):
         if cancelled or self._finished:
@@ -215,7 +298,10 @@ class ColorReplacementDialog(QDialog):
         if error is not None:
             self._status.setText(tr("预览失败：{error}", error=error))
             return
-        self._raw = image
+        if isinstance(image, tuple):
+            self._raw, self._palette, self._sampled = image
+        else:
+            self._raw = image
         self._queue_preview()
 
     def _queue_preview(self):

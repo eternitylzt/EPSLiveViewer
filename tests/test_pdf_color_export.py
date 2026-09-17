@@ -126,7 +126,7 @@ class PdfColorExportTests(unittest.TestCase):
         view.set_text_selection_mode(True)
 
         def settle():
-            view._refresh_visible_tiles()
+            view._refresh_visible_frame()
             deadline = time.monotonic() + 15
             while view._in_flight or view._queued or view._color_jobs:
                 APP.processEvents()

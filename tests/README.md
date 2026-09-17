@@ -1,5 +1,77 @@
 # Packaging regression check
 
+## 3.1.0
+
+All 41 source regressions pass on Windows, including menus above the tabs,
+non-closable Home and recent-file routing, stable bilingual language entry,
+rotated-text hover/double-click, independent positioned fragments within one
+BT/ET block, and preserved EPS/PS page size (including page rotation).
+The existing three-page EPS preview/export/video smoke check also passes.
+All nine text-editing regressions also pass in a separately frozen executable
+using the production packaging hooks and native Windows Qt plugin.
+
+With the user's original three-page EPS, conservative recognition increases
+from 53 to 125 independently positioned fragments, including previously skipped
+rotated units. Replacing a unit label and exporting EPS, PS and PDF retains the
+595 × 842 pt canvas; PS/PDF retain all three pages. The source is never changed.
+
+Actual Home, recoloring, text editing and toolbar captures using synthetic data
+are in `docs/screenshots`, reproducible with `scripts/capture_product_screenshots.py`.
+Production EXE: 55,130,870 bytes (about 52.6 MiB). No new runtime dependencies.
+Native macOS/Linux release artifacts were not rebuilt during this Windows update.
+
+## 3.0.1 local candidate
+
+All 38 source tests pass on Windows. New checks cover actual double-clicks on
+rotated text in both the main preview and editing workspace, selected-character
+size/color/bold styling, keyboard deletion and symbol insertion, rich-text PDF
+reopening, Save committing a live edit, and EPS-first save filters. Workspace
+checks cover returning to Home on last-tab close, recent-file activation,
+1024 × 728 usable desktop bounds, settings round trips and cross-window
+synchronization without changing document transforms.
+
+All seven text-editing tests also pass in a separately frozen executable built
+with production hooks and the native Windows Qt platform plugin.
+The user's three-page EPS also passes the existing preview/export/video smoke
+check. Home, categorized Settings, live mixed-style editing and applied output
+were visually inspected. Production Windows EXE: 55,124,370 bytes, an increase
+of 22,689 bytes (about 0.04%) over the previous local 3.0.0 build. No new runtime
+dependency or font package was added. Native macOS/Linux execution has not been
+verified for this local candidate; nothing has been pushed or published.
+
+For 3.0.0, `test_text_editing.py` checks real text replacement (not a white
+overlay), unchanged source bytes, preserved vector paths/page counts, unsupported
+run rejection, vector EPS/PS output without cached glyph bitmaps, PDF text
+re-identification, available CJK/Greek glyphs, undo, source overwrite protection,
+home-screen metadata and toolbar icons. Fonts are taken from the test host.
+The editor deliberately does not promise arbitrary PostScript/PDF text editing.
+
+Windows 3.0.0 local verification: all 33 source tests pass; the four text-editing
+tests also pass in a separately frozen executable using production hooks. The
+user's three-page EPS passes the existing end-to-end preview/export/video smoke
+check; 53 independent text runs are recognized. Home and editing-window captures
+were visually inspected. Production EXE: 55,101,681 bytes (52.55 MiB); no runtime
+dependencies or font bundles were added. Native macOS/Linux execution has not
+been verified for this local 3.0.0 build.
+
+For 2.3.1, `test_preview_rendering.py` compares partially transparent region
+renders against whole-page sampling, verifies click-only repaint stability,
+checks that zooming retains a complete image, and bounds cache growth/release.
+`preview_profile.py path/to/file.eps` measures preview times and Windows process
+working/private memory in an isolated configuration (no additional dependency).
+With the user's three-page EPS, 1250 x 850 windows, and the same source runtime:
+
+| Stage | 2.3.0 working set (MiB) | 2.3.1 working set (MiB) |
+| --- | ---: | ---: |
+| Empty window | 68.75 | 69.38 |
+| Open one file | 96.34 | 87.73 |
+| Six successive zooms | 176.97 | 94.77 |
+| Then open a second window | 205.16 | 113.21 |
+
+Measured first-open-to-settled time: 1.375 s → 0.875 s; six zoom-and-settle cycles:
+3.063 s → 1.703 s. Each cycle includes a 150 ms idle verification interval.
+These are development-machine measurements, not fixed memory or latency promises.
+
 For 2.3.0, `test_pdf_color_export.py` checks 600 DPI A4 recolored PNG export,
 alpha/tolerance/non-cascading replacement semantics, PDF input and multiple video
 frames, preserved vector paths and text in recolored PDFs without Ghostscript,

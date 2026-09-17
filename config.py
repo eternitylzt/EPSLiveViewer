@@ -14,7 +14,7 @@ from typing import Any
 
 
 APP_NAME = "EPS Live Viewer"
-APP_VERSION = "2.3.0"
+APP_VERSION = "3.1.0"
 PROJECT_URL = "https://github.com/eternitylzt/EPSLiveViewer"
 BACKGROUND_MODES = ("transparent", "white", "custom")
 WHEEL_ACTIONS = ("zoom", "files", "pages")
@@ -82,12 +82,30 @@ class AppConfig:
     background_mode: str = "white"
     background_color: str = "#FFFFFF"
     export_dpi: int = 300
+    fallback_dpi: int = 300
     wheel_action: str = "zoom"
     language: str = "zh_CN"
     open_mode: str = "window"
+    home_recent: bool = True
+    start_maximized: bool = False
+    text_list_visible: bool = False
+    auto_select_text: bool = True
+    rotation_scope: str = "current"
+    png_all_pages: bool = True
+    suppress_ghostscript_help: bool = False
+    color_tolerance: int = 8
+    video_fps: int = 10
+    video_format: str = "mp4"
+    video_width: int = 1920
+    video_height: int = 1080
+    video_background: str = "#FFFFFF"
+    compare_linked: bool = True
+    compare_locked: bool = True
+    compare_follow: bool = True
     toolbar_tools: list[str] = field(default_factory=lambda: [
         "open", "previous_file", "next_file", "previous_page", "next_page",
-        "zoom_out", "zoom_in", "fit", "invert_colors", "save_png",
+        "zoom_out", "zoom_in", "fit", "invert_colors", "replace_colors", "edit_text",
+        "save_png", "save_pdf", "save_postscript",
     ])
 
     @classmethod
@@ -112,6 +130,11 @@ class AppConfig:
         configured_path = raw.get("ghostscript_path", "")
         if configured_path is None:
             configured_path = ""
+        tools = raw.get("toolbar_tools")
+        previous_default = ["open","previous_file","next_file","previous_page","next_page",
+                            "zoom_out","zoom_in","fit","invert_colors","edit_text","save_png"]
+        if tools == previous_default:
+            tools = defaults.toolbar_tools
         return cls(
             ghostscript_path=str(configured_path).strip(),
             auto_refresh=_coerce_bool(raw.get("auto_refresh"), defaults.auto_refresh),
@@ -132,10 +155,22 @@ class AppConfig:
                 MAX_EXPORT_DPI,
             ),
             wheel_action=wheel_action,
+            fallback_dpi=_bounded_int(raw.get("fallback_dpi"),300,MIN_EXPORT_DPI,MAX_EXPORT_DPI),
             language=language,
             open_mode="tabs" if raw.get("open_mode") == "tabs" else "window",
-            toolbar_tools=list(dict.fromkeys(str(x) for x in raw["toolbar_tools"]))
-            if isinstance(raw.get("toolbar_tools"), list) else defaults.toolbar_tools,
+            **{name: _coerce_bool(raw.get(name), getattr(defaults,name)) for name in (
+                "home_recent", "start_maximized", "text_list_visible", "auto_select_text",
+                "png_all_pages", "suppress_ghostscript_help",
+                "compare_linked", "compare_locked", "compare_follow")},
+            rotation_scope="all" if raw.get("rotation_scope") == "all" else "current",
+            color_tolerance=_bounded_int(raw.get("color_tolerance"),8,0,255),
+            video_fps=_bounded_int(raw.get("video_fps"),10,1,60),
+            video_format="gif" if raw.get("video_format") == "gif" else "mp4",
+            video_width=_bounded_int(raw.get("video_width"),1920,16,7680),
+            video_height=_bounded_int(raw.get("video_height"),1080,16,7680),
+            video_background=_normalize_color(raw.get("video_background"),"#FFFFFF"),
+            toolbar_tools=list(dict.fromkeys(str(x) for x in tools))
+            if isinstance(tools, list) else defaults.toolbar_tools,
         )
 
 

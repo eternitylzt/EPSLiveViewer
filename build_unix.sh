@@ -25,9 +25,10 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     .venv/bin/python -m PyInstaller \
         "${common_args[@]}" \
         --onedir \
+        --icon resources/icon.icns \
         --osx-bundle-identifier com.zhentongli.epsliveviewer \
         main.py
-    app_version="${APP_VERSION:-2.3.0}"
+    app_version="${APP_VERSION:-3.1.0}"
     .venv/bin/python scripts/configure_macos_bundle.py \
         dist/EPSLiveViewer.app/Contents/Info.plist "$app_version"
     codesign --force --deep --sign - dist/EPSLiveViewer.app

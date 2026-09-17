@@ -1258,6 +1258,7 @@ class EpsRenderer:
         background: str = "transparent",
         background_color: str = "#FFFFFF",
         cancel_event: _CancellationEvent | None = None,
+        vector_text: bool = False,
     ) -> Path:
         """Recolor vector objects; complex effects use the declared raster fallback."""
         source_path = Path(source).resolve()
@@ -1328,6 +1329,8 @@ class EpsRenderer:
                    if destination.suffix.lower() == ".eps" and not rasterized
                    else [] ),
                 f"-sDEVICE={device}",
+                "-dUseCropBox",
+                *(["-dNOCACHE"] if vector_text and device != "pdfwrite" else []),
                 "-dAutoRotatePages=/None",
                 *( ["-dCompatibilityLevel=1.7"] if device == "pdfwrite" else [] ),
                 f"-sOutputFile={temporary}",
@@ -1339,6 +1342,22 @@ class EpsRenderer:
                 cancel_event,
                 tr("Ghostscript 无法保存变换后的文档。"),
             )
+            if destination.suffix.lower() == ".eps" and not rasterized:
+                # epswrite/eps2write report the ink bounds, which would
+                # remove page margins on the next EPSCrop preview. Retain
+                # the displayed PDF page's canvas in the generated DSC.
+                from pypdf import PdfReader
+                with PdfReader(staging_input) as pdf:
+                    page = pdf.pages[current_page-1]
+                    width,height = float(page.cropbox.width),float(page.cropbox.height)
+                    if page.rotation % 180:
+                        width,height = height,width
+                data = temporary.read_bytes()
+                box = f"%%BoundingBox: 0 0 {math.ceil(width)} {math.ceil(height)}".encode("ascii")
+                hires = f"%%HiResBoundingBox: 0 0 {width:.8f} {height:.8f}".encode("ascii")
+                data = re.sub(rb"(?m)^%%BoundingBox:[^\r\n]*",lambda _:box,data)
+                data = re.sub(rb"(?m)^%%HiResBoundingBox:[^\r\n]*",lambda _:hires,data)
+                temporary.write_bytes(data)
             self._raise_if_cancelled(cancel_event)
             os.replace(temporary, destination)
             temporary = None

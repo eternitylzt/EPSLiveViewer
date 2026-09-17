@@ -5,7 +5,25 @@
     "background_mode": "white",
     "background_color": "#FFFFFF",
     "export_dpi": 300,
+    "fallback_dpi": 300,
     "wheel_action": "zoom",
-    "language": "zh_CN"
+    "language": "zh_CN",
+    "open_mode": "window",
+    "home_recent": true,
+    "start_maximized": false,
+    "text_list_visible": false,
+    "auto_select_text": true,
+    "rotation_scope": "current",
+    "png_all_pages": true,
+    "suppress_ghostscript_help": false,
+    "color_tolerance": 8,
+    "video_fps": 10,
+    "video_format": "mp4",
+    "video_width": 1920,
+    "video_height": 1080,
+    "video_background": "#FFFFFF",
+    "compare_linked": true,
+    "compare_locked": true,
+    "compare_follow": true
 }
 

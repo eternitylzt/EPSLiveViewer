@@ -38,6 +38,7 @@ from image_transforms import TransformSnapshot
 from video_creator import VideoExporter, VideoExportRequest, VideoFrameSource
 from animation_preview import AnimationPreviewDialog
 from document_state import load_state
+from config import AppConfig
 
 
 @dataclass(frozen=True)
@@ -69,13 +70,14 @@ class VideoCreationDialog(QDialog):
         self.setWindowTitle(tr("制作视频"))
         self.setMinimumSize(860, 620)
         self._current_file = current_file
+        self._preferences = getattr(parent, "_config", AppConfig())
         self.resize(980, 700)
         self._renderer = renderer
         self._transforms_by_source = {
             Path(path).resolve(): transforms
             for path, transforms in (transforms_by_source or {}).items()
         }
-        self._background_color = QColor("#FFFFFF")
+        self._background_color = QColor(self._preferences.video_background)
         self._crop_rect: NormalizedCrop | None = None
         self._reference_source: VideoFrameSource | None = None
         self._reference_raster_size: tuple[int, int] | None = None
@@ -191,10 +193,11 @@ class VideoCreationDialog(QDialog):
         form.addRow(tr("分辨率："), self._preset_combo)
 
         dimensions = QHBoxLayout()
-        self._width_spin = self._dimension_spin(1920)
-        self._height_spin = self._dimension_spin(1080)
+        self._width_spin = self._dimension_spin(self._preferences.video_width)
+        self._height_spin = self._dimension_spin(self._preferences.video_height)
         self._width_spin.valueChanged.connect(self._dimensions_changed)
         self._height_spin.valueChanged.connect(self._dimensions_changed)
+        self._dimensions_changed()
         dimensions.addWidget(self._width_spin)
         dimensions.addWidget(QLabel("×"))
         dimensions.addWidget(self._height_spin)
@@ -203,7 +206,7 @@ class VideoCreationDialog(QDialog):
 
         self._fps_spin = QSpinBox()
         self._fps_spin.setRange(1, 60)
-        self._fps_spin.setValue(10)
+        self._fps_spin.setValue(self._preferences.video_fps)
         self._fps_spin.setSuffix(" FPS")
         form.addRow(tr("帧率："), self._fps_spin)
         self._duration_label = QLabel()
@@ -244,6 +247,7 @@ class VideoCreationDialog(QDialog):
         if not folder.is_dir():
             folder = Path.home()
         self._load_folder(folder)
+        self._format_combo.setCurrentIndex(self._format_combo.findData(self._preferences.video_format))
         self._scope_combo.currentIndexChanged.connect(lambda: self._load_folder(Path(self._folder_edit.text())))
         self._format_filter.currentIndexChanged.connect(lambda: self._load_folder(Path(self._folder_edit.text())))
 

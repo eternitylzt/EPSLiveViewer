@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing or new release tag
         required: true
-        default: eps-live-viewer-v2.3.0
+        default: eps-live-viewer-v3.1.0
       target:
         description: Build all platforms or replace only the Apple Silicon DMG
         type: choice
@@ -148,6 +148,7 @@ jobs:
         run: |
           python -m PyInstaller --noconfirm --clean --onedir --windowed \
             --name EPSLiveViewer \
+            --icon resources/icon.icns \
             --osx-bundle-identifier com.zhentongli.epsliveviewer \
             --add-data "resources:resources" \
             --collect-all imageio_ffmpeg \

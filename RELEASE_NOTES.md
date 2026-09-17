@@ -1,4 +1,72 @@
-# EPS Live Viewer 2.3.0
+# EPS Live Viewer 3.1.0
+
+## 3.1.0 中文
+
+- 固定 Settings / 界面语言 Language 入口；菜单置于标签栏上方，以唯一的 Home 图标返回首页，文档标签加宽并突出当前项。
+- 首页最近文件改为对齐表格，显示名称、大小、最近打开时间和位置。
+- 默认工具栏增加换色、PDF 与 EPS/PS 导出；保留用户已自定义的工具栏。
+- EPS 导出保留原页面画布和留白；支持同段中独立定位的旋转文字、单位、上标片段，增加编辑光标提示。
+- 备用渲染 DPI 移入设置，减少重复弹窗；原文件及未保存修改保护仍保留。
+- README 加入实际产品截图（合成示例）。
+
+## 3.1.0 English
+
+- Stable bilingual language entry, menus above tabs, a single Home icon, and wider highlighted document tabs.
+- Recent files use an aligned table with file name, size, last-opened time and location.
+- Replace Colors and PDF/EPS/PS export in the default toolbar; existing custom tool choices are retained.
+- Preserve EPS page canvas/margins; recognize independently positioned rotated/unit/superscript fragments and show an editing cursor on hover.
+- Fallback DPI moves to preferences; retain confirmations that protect originals and unsaved work.
+- Compact README product screenshots using synthetic data.
+
+## 3.0.1 中文
+
+- 页面内双击编辑，支持同一文字片段中的局部字符样式；实时显示，保存自动包含当前修改。
+- 文字列表默认隐藏；科研符号改为分类工具盒；EPS/PS/PDF 保存顺序与旋转文字选中提示优化。
+- 首页最近文件及显示开关、屏幕自适应启动尺寸、可选最大化；关闭最后一个标签返回首页。
+- 分类设置菜单统一管理预览、依赖、编辑、导出、视频、比较和工具栏偏好，并同步已打开的窗口/标签页；保留文档独立编辑。
+- 调整导出菜单，提供中英文发布介绍草稿；本次不推送或发布 GitHub。
+
+## 3.0.1 English
+
+- Double-click on-page editing with character-range styling inside a recognizable run, live updates and automatic commit on Save.
+- Optional text list, categorized symbol toolbox, EPS-first Save As, and improved rotated-text selection feedback.
+- Recent files on Home, screen-fitting startup and optional maximization; the final tab returns Home.
+- Categorized, synchronized preferences for preview, dependencies, editing, export, video, comparison and toolbar; document edits remain independent.
+- Regrouped export menu and bilingual release-copy draft. No GitHub push/publication in this iteration.
+
+## 3.0.0 中文
+
+- 新增可识别文字的独立编辑窗口：内容、系统字体、字号、颜色、粗斜体、旋转、科研符号、撤销/重做和矢量预览。
+- 原文件保护及 EPS/PS/PDF 另存为；EPS 当前页，PS/PDF 全部页。源文件变化时提醒快照冲突。
+- 未打开文件时显示品牌首页、版本、仓库和作者；重新绘制简约矢量 Logo，生成 Windows/macOS 图标。
+- 图标工具栏与悬停说明、彩色色值和文档色板、Ghostscript 下载及路径设置指引。
+- 不增加运行依赖或字体包；保留 2.3.1 完整帧和内存优化。
+- 边界：只编辑可识别独立文字；旧版 Ghostscript 可能将导出的新文字转为矢量轮廓，建议保留 PDF 以继续编辑。
+
+## 3.0.0 English
+
+- Independent text-editing workspace: content, installed fonts, size, color, bold/italic, rotation, scientific symbols, undo/redo and vector preview.
+- Original-file protection and EPS/PS/PDF Save As; EPS exports the current page, PS/PDF all pages. External source changes trigger a snapshot warning.
+- Branded home screen with version, repository and author; modern vector logo and Windows/macOS icons.
+- Icon toolbar with tooltips, colored replacement values, document palettes and Ghostscript installation guidance.
+- No new runtime dependencies or font bundles; retains 2.3.1 preview/memory improvements.
+- Scope is recognizable independent runs. Old Ghostscript may outline exported text; retain the edited PDF for subsequent editing.
+
+## 2.3.1 中文
+
+- 预览改为整幅可见区域更新，去除图块接缝和点击重绘时变化的细线。
+- 缩放时保留上一幅完整画面，只处理最新视图请求；适应窗口时直接生成高清画面。
+- 限制当前高清帧像素量，释放过期缩放缓存和后台标签页高清帧，降低多窗口/多标签页内存占用。
+- 增加透明图像、区域采样、点击重绘和缓存释放回归检查；未新增运行依赖。
+
+## 2.3.1 English
+
+- Update the visible preview as a complete frame, eliminating tile seams and thin lines that changed during click-only repaints.
+- Retain the previous complete image while zooming and coalesce requests to the latest view. Fitted pages render directly at display quality.
+- Bound detail-frame pixels, replace old zoom caches, and release hidden-tab detail frames to reduce memory use.
+- Added transparent-region sampling, repaint, and cache-release regressions. No new runtime dependencies.
+
+---
 
 ## 2.3.0 中文
 

@@ -173,6 +173,11 @@ class ComparisonDialog(QDialog):
         self._locked.setToolTip(tr("锁定后，左图不随主窗口刷新或调色。重新选图可更换参考图。"))
         self._follow = QCheckBox(tr("右图跟随主窗口"))
         self._follow.setChecked(True)
+        config = getattr(parent, "_config", None)
+        if config is not None:
+            self._linked.setChecked(config.compare_linked)
+            self._locked.setChecked(config.compare_locked)
+            self._follow.setChecked(config.compare_follow)
         for checkbox in (self._linked, self._locked, self._follow):
             controls.addWidget(checkbox)
         controls.addStretch(1)

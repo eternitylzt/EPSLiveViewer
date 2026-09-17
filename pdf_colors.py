@@ -157,6 +157,18 @@ def recolor_pdf(source, target, transforms, background="transparent", background
                     processed.add(key)
                     if obj.get("/Subtype") == "/Form":
                         child = transform_stream(obj, obj.get("/Resources", resources), (stroke, fill))
+                        if obj.get("/ELVEditableText") is not None:
+                            from pypdf.generic import TextStringObject
+                            meta = obj["/ELVEditableText"]
+                            color = QColor(str(meta.get("/Color", "")))
+                            if color.isValid():
+                                meta[NameObject("/Color")] = TextStringObject(
+                                    adjusted_color(color, transforms.inverted, transforms.replacements).name())
+                            for run in meta.get("/Runs", []):
+                                color = QColor(str(run.get("/Color", "")))
+                                if color.isValid():
+                                    run[NameObject("/Color")] = TextStringObject(
+                                        adjusted_color(color, transforms.inverted, transforms.replacements).name())
                         obj._data = child.get_data()
                         obj.pop("/Filter", None)
                         obj.pop("/DecodeParms", None)

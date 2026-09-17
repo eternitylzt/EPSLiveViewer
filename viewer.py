@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -33,7 +34,6 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenuBar,
     QMessageBox,
-    QInputDialog,
     QProgressDialog,
     QStyle,
     QTextBrowser,
@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QCheckBox,
     QGridLayout,
+    QStackedWidget,
 )
 
 from config import (
@@ -54,6 +55,9 @@ from config import (
     filename_sort_key,
 )
 from color_dialog import ColorReplacementDialog
+from welcome import WelcomePage
+from branding import tool_icon
+from window_geometry import fit_initial_window
 from comparison import ComparisonDialog
 from dialogs import PngExportDialog, SettingsDialog
 from diagnostics import Diagnostics, DiagnosticsDialog
@@ -65,7 +69,7 @@ from eps_renderer import (
     PdfRenderResult,
 )
 from file_monitor import EpsFileMonitor
-from i18n import set_language, tr
+from i18n import set_language, tr, bilingual as L
 from image_transforms import DocumentTransforms, TransformSnapshot, TransformHistory
 from update_checker import (
     ReleaseInfo,
@@ -306,6 +310,11 @@ class MainWindow(QMainWindow):
     document_state_changed = pyqtSignal(object, object, int)
     caption_changed = pyqtSignal()
 
+    def menuBar(self):
+        # Hosted documents retain their own actions, but display their menu
+        # above the workspace's tab strip, never inside the document page.
+        return getattr(self,"_shared_menu_bar",None) or super().menuBar()
+
     def __init__(self, config_manager: ConfigManager, parent=None) -> None:
         super().__init__(parent)
         if parent is not None:
@@ -374,7 +383,14 @@ class MainWindow(QMainWindow):
         self._view.source_dropped.connect(self.request_open)
         self._view.file_navigation_requested.connect(self._navigate_sibling)
         self._view.page_navigation_requested.connect(self._navigate_page)
-        self.setCentralWidget(self._view)
+        self._view.edit_text_requested.connect(self._show_text_editor)
+        self._pages = QStackedWidget()
+        self._welcome = WelcomePage(self)
+        self._welcome.open_requested.connect(self._choose_file)
+        self._welcome.recent_requested.connect(self._open_recent)
+        self._pages.addWidget(self._welcome)
+        self._pages.addWidget(self._view)
+        self.setCentralWidget(self._pages)
 
         self._create_actions()
         self._create_menus()
@@ -383,6 +399,8 @@ class MainWindow(QMainWindow):
         self._create_document_actions()
         self._retranslate_ui()
         self._monitor.set_enabled(self._config.auto_refresh)
+        if parent is None:
+            fit_initial_window(self,1200,800)
 
     # ----- UI construction -------------------------------------------------
 
@@ -476,7 +494,7 @@ class MainWindow(QMainWindow):
         for action in (self._rotate_current_action, self._rotate_all_action):
             action.setCheckable(True)
             self._rotation_scope_group.addAction(action)
-        scope = self._settings.value("rotationScope", "current")
+        scope = self._config.rotation_scope
         (self._rotate_all_action if scope == "all" else self._rotate_current_action).setChecked(True)
         self._rotation_scope_group.triggered.connect(self._rotation_scope_changed)
 
@@ -520,9 +538,10 @@ class MainWindow(QMainWindow):
         self._file_menu = menu_bar.addMenu("文件(&F)")
         self._file_menu.addAction(self._open_action)
         self._file_menu.addAction(self._reload_action)
-        self._file_menu.addAction(self._save_png_action)
-        self._file_menu.addAction(self._save_pdf_action)
-        self._file_menu.addAction(self._save_postscript_action)
+        self._export_menu = self._file_menu.addMenu("导出")
+        self._export_menu.addAction(self._save_postscript_action)
+        self._export_menu.addAction(self._save_pdf_action)
+        self._export_menu.addAction(self._save_png_action)
         self._file_menu.addAction(self._make_video_action)
         self._file_menu.addSeparator()
         self._recent_menu = self._file_menu.addMenu("最近打开文件")
@@ -561,6 +580,19 @@ class MainWindow(QMainWindow):
         self._image_menu.addAction(self._replace_colors_action)
         self._image_menu.addAction(self._reset_transforms_action)
 
+        self._preferences_menu = menu_bar.addMenu("设置")
+        self._preferences_menu.addAction(self._settings_action)
+        self._preferences_menu.addSeparator()
+        self._settings_sections = []
+        for key, zh, en in (("general","常规与预览…","General & View…"),
+                            ("runtime","刷新与依赖…","Refresh & Dependencies…"),
+                            ("export","导出与视频…","Export & Video…"),
+                            ("editing","编辑与工具…","Editing & Tools…"),
+                            ("toolbar","工具栏…","Toolbar…")):
+            action = self._preferences_menu.addAction(L(zh,en))
+            action.triggered.connect(lambda checked=False, section=key: self._show_settings(section))
+            self._settings_sections.append((action,zh,en))
+
         self._help_menu = menu_bar.addMenu("帮助(&H)")
         self._help_menu.addAction(self._check_updates_action)
         self._help_menu.addAction(self._diagnostics_action)
@@ -571,7 +603,7 @@ class MainWindow(QMainWindow):
         self._toolbar = QToolBar("快捷工具", self)
         self._toolbar.setObjectName("mainToolbar")
         self._toolbar.setMovable(False)
-        self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         standard = QStyle.StandardPixmap
         self._open_action.setIcon(self.style().standardIcon(standard.SP_DialogOpenButton))
         self._reload_action.setIcon(self.style().standardIcon(standard.SP_BrowserReload))
@@ -588,6 +620,12 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self._toolbar)
 
     def _create_document_actions(self):
+        self._edit_text_action = QAction(self)
+        self._edit_text_action.setEnabled(False)
+        self._edit_text_action.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        self._edit_text_action.triggered.connect(self._show_text_editor)
+        self._image_menu.addSeparator()
+        self._image_menu.addAction(self._edit_text_action)
         self._save_edits_action = QAction(self)
         self._save_edits_action.setShortcut(QKeySequence.StandardKey.Save)
         self._save_edits_action.setEnabled(False)
@@ -598,13 +636,13 @@ class MainWindow(QMainWindow):
         self._select_text_action = QAction(self)
         self._select_text_action.setCheckable(True)
         self._select_text_action.setEnabled(False)
-        self._select_text_action.toggled.connect(self._view.set_text_selection_mode)
+        self._select_text_action.toggled.connect(self._set_auto_text)
         self._copy_text_action = QAction(self)
         self._copy_text_action.setShortcut(QKeySequence.StandardKey.Copy)
         self._copy_text_action.triggered.connect(self._view.copy_selected_text)
         self._customize_toolbar_action = QAction(self)
         self._customize_toolbar_action.triggered.connect(self._customize_toolbar)
-        self._file_menu.insertAction(self._save_png_action, self._save_edits_action)
+        self._file_menu.insertAction(self._export_menu.menuAction(), self._save_edits_action)
         self._file_menu.insertAction(self._settings_action, self._file_info_action)
         self._view_menu.addAction(self._select_text_action)
         self._view_menu.addAction(self._copy_text_action)
@@ -618,10 +656,31 @@ class MainWindow(QMainWindow):
                          "next_page", "zoom_out", "zoom_in", "fit", "rotate_left",
                          "rotate_right", "invert_colors", "replace_colors", "save_edits",
                          "save_png", "save_pdf", "save_postscript", "make_video", "compare",
-                         "file_info", "select_text")
+                         "file_info", "select_text", "edit_text")
         }
         self._toolbar_options["rotation_scope"] = self._rotation_toolbar_action
+        self._set_toolbar_icons()
         self._refresh_toolbar()
+
+    def _set_toolbar_icons(self):
+        color = self.palette().color(self.foregroundRole())
+        for name, action in self._toolbar_options.items():
+            if name != "rotation_scope":
+                action.setIcon(tool_icon(name, color))
+
+    def _show_text_editor(self, point=None):
+        if self._current_pdf is None or self._current_file is None:
+            return
+        from text_editor import TextEditorDialog
+        dialog = TextEditorDialog(self._current_pdf, self._current_file, self._renderer,
+                                  self._current_transforms().snapshot(), self,
+                                  page=self._current_page_index,
+                                  show_list=self._config.text_list_visible,
+                                  initial_point=point if not isinstance(point,bool) else None)
+        try:
+            dialog.exec()
+        finally:
+            dialog.deleteLater()
 
     def _refresh_toolbar(self):
         # Removing an action here keeps its menu entry and shortcut available.
@@ -632,27 +691,12 @@ class MainWindow(QMainWindow):
                 self._toolbar.addAction(self._toolbar_options[name])
 
     def _customize_toolbar(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle(tr("自定义工具栏"))
-        root = QVBoxLayout(dialog)
-        root.addWidget(QLabel(tr("勾选要在工具栏显示的工具。也可右键工具栏打开此设置。")))
-        grid = QGridLayout()
-        boxes = {}
-        for index, (name, action) in enumerate(self._toolbar_options.items()):
-            box = QCheckBox(tr("旋转范围") if name == "rotation_scope" else action.text().replace("&", ""))
-            box.setChecked(name in self._config.toolbar_tools)
-            boxes[name] = box
-            grid.addWidget(box, index // 2, index % 2)
-        root.addLayout(grid)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        root.addWidget(buttons)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._config.toolbar_tools = [name for name, box in boxes.items() if box.isChecked()]
-            self._refresh_toolbar()
-            self._save_config()
-        dialog.deleteLater()
+        self._show_settings("toolbar")
+
+    def _set_auto_text(self, enabled):
+        self._view.set_text_selection_mode(enabled)
+        self._config.auto_select_text = enabled
+        self._save_config()
 
     def is_modified(self, source=None):
         source = source or self._current_file
@@ -760,7 +804,9 @@ class MainWindow(QMainWindow):
             self.request_open(filename)
 
     def request_open(self, filename):
-        if self._host is not None and self._current_file is not None:
+        if self._host is not None and self._current_file is None:
+            self._host.add_document(filename)
+        elif self._host is not None:
             self._host.open_file(filename, self._config.open_mode)
         else:
             self.open_eps(filename)
@@ -793,6 +839,8 @@ class MainWindow(QMainWindow):
             self._cancel_active_preview()
             self._current_file = source
             self._current_pdf = None
+            self._edit_text_action.setEnabled(False)
+            self._pages.setCurrentWidget(self._view)
             self._current_page_index = 0
             self._page_count = 0
             self._view.clear_document()
@@ -812,9 +860,11 @@ class MainWindow(QMainWindow):
             self._next_page_action.setEnabled(False)
             self._set_transform_actions_enabled(True)
             self._select_text_action.setEnabled(source.suffix.lower() in {".eps", ".ps", ".pdf"})
-            self._select_text_action.setChecked(self._select_text_action.isEnabled())
-            if not self._select_text_action.isEnabled():
-                self._select_text_action.setChecked(False)
+            self._view.text_edit_enabled = self._select_text_action.isEnabled()
+            self._select_text_action.blockSignals(True)
+            self._select_text_action.setChecked(self._select_text_action.isEnabled() and self._config.auto_select_text)
+            self._select_text_action.blockSignals(False)
+            self._view.set_text_selection_mode(self._select_text_action.isChecked())
             self._file_info_action.setEnabled(True)
             self._save_edits_action.setEnabled(True)
             self.caption_changed.emit()
@@ -980,9 +1030,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message, 2500)
 
     def _rotation_scope_changed(self, _action: QAction) -> None:
-        self._settings.setValue(
-            "rotationScope", "all" if self._rotate_all_action.isChecked() else "current"
-        )
+        self._config.rotation_scope = "all" if self._rotate_all_action.isChecked() else "current"
+        self._save_config()
         self._update_rotation_scope_button()
 
     def _update_rotation_scope_button(self) -> None:
@@ -1005,12 +1054,16 @@ class MainWindow(QMainWindow):
         before = state.snapshot()
         frame = VideoFrameSource(self._current_file, self._current_page_index + 1)
         exporter = VideoExporter(self._renderer)
+        from document_palette import vector_palette
+        pdf, page_index = self._current_pdf, self._current_page_index
         dialog = ColorReplacementDialog(
             state.replacements, self,
             preview_loader=lambda cancel: exporter.read_original(frame, 72, cancel, 900),
             inverted=state.inverted, rotation=state.rotation_for(frame.page_number),
             background_mode=self._config.background_mode,
             background_color=self._config.background_color,
+            palette_loader=(lambda: vector_palette(pdf, page_index)) if pdf else None,
+            default_tolerance=self._config.color_tolerance,
         )
         try:
             if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -1042,17 +1095,52 @@ class MainWindow(QMainWindow):
         files = [item for item in self._recent_files() if item.lower() != normalized.lower()]
         files.insert(0, normalized)
         self._settings.setValue("recentFiles", files[: self.MAX_RECENT_FILES])
+        try:
+            metadata=json.loads(str(self._settings.value("recentFileMetadata","{}")))
+            if not isinstance(metadata,dict):metadata={}
+        except (TypeError,ValueError,json.JSONDecodeError):
+            metadata={}
+        try:size=source.stat().st_size
+        except OSError:size=None
+        metadata[normalized]={"opened":datetime.now().isoformat(timespec="seconds"),"size":size}
+        valid=set(files[:self.MAX_RECENT_FILES])
+        self._settings.setValue("recentFileMetadata",json.dumps(
+            {path:data for path,data in metadata.items() if path in valid},ensure_ascii=False))
         self._update_recent_menu()
+        if self._host is not None:
+            self._host.controller.refresh_recent_files()
 
     def _remove_recent_file(self, filename: str) -> None:
         self._settings.setValue(
             "recentFiles", [item for item in self._recent_files() if item != filename]
         )
+        try:
+            metadata=json.loads(str(self._settings.value("recentFileMetadata","{}")))
+        except (TypeError,ValueError,json.JSONDecodeError):
+            metadata={}
+        if isinstance(metadata,dict):
+            metadata.pop(filename,None)
+            self._settings.setValue("recentFileMetadata",json.dumps(metadata,ensure_ascii=False))
         self._update_recent_menu()
+        if self._host is not None:
+            self._host.controller.refresh_recent_files()
 
     def _update_recent_menu(self) -> None:
         self._recent_menu.clear()
         files = self._recent_files()
+        try:
+            metadata=json.loads(str(self._settings.value("recentFileMetadata","{}")))
+            if not isinstance(metadata,dict):metadata={}
+        except (TypeError,ValueError,json.JSONDecodeError):
+            metadata={}
+        entries=[]
+        for filename in files:
+            data=metadata.get(filename,{})
+            path=Path(filename)
+            try:size=path.stat().st_size
+            except OSError:size=data.get("size")
+            entries.append({"path":filename,"size":size,"opened":data.get("opened","")})
+        self._welcome.set_recent_files(entries, self._config.home_recent)
         if not files:
             placeholder = self._recent_menu.addAction(tr("（暂无最近文件）"))
             placeholder.setEnabled(False)
@@ -1139,6 +1227,7 @@ class MainWindow(QMainWindow):
             return
         self._apply_current_transforms()
         self._current_pdf = result.pdf_path
+        self._edit_text_action.setEnabled(result.source.suffix.lower() in {".eps", ".ps", ".pdf"})
         self._add_recent_file(result.source)
         self._automatic_failure_count = 0
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1230,8 +1319,10 @@ class MainWindow(QMainWindow):
             self._config.export_dpi,
             page_count=self._page_count,
             parent=self,
+            all_pages=self._config.png_all_pages,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
+            dialog.deleteLater()
             return
         target, dpi, all_pages = dialog.get_values()
         output = (
@@ -1403,22 +1494,7 @@ class MainWindow(QMainWindow):
                 return
 
         transforms = self._current_transforms().snapshot()
-        dpi = self._config.export_dpi
-        if (
-            transforms.replacements
-            or self._current_file.suffix.lower() in {".png", ".jpg", ".jpeg"}
-        ):
-            dpi, accepted = QInputDialog.getInt(
-                self,
-                tr("调色文档导出"),
-                tr("优先保留文字和线条为矢量；复杂渐变等内容可能使用位图。请选择备用渲染 DPI："),
-                dpi,
-                72,
-                600,
-                50,
-            )
-            if not accepted:
-                return
+        dpi = self._config.fallback_dpi
         self._start_pdf_export(
             PdfExportRequest(
                 self._current_file,
@@ -1619,7 +1695,9 @@ class MainWindow(QMainWindow):
     # ----- Settings and status --------------------------------------------
 
     def _retranslate_ui(self) -> None:
+        self._welcome.retranslate()
         action_texts = (
+            (self._edit_text_action, "编辑文字…"),
             (self._save_edits_action, "保存编辑记录"),
             (self._file_info_action, "文件信息"),
             (self._select_text_action, "自动选择文本"),
@@ -1657,10 +1735,17 @@ class MainWindow(QMainWindow):
         )
         for action, source in action_texts:
             action.setText(tr(source))
+            action.setToolTip(tr(source).replace("&", ""))
         self._file_menu.setTitle(tr("文件(&F)"))
         self._recent_menu.setTitle(tr("最近打开文件"))
         self._view_menu.setTitle(tr("查看(&V)"))
         self._image_menu.setTitle(tr("图像(&I)"))
+        self._export_menu.setTitle(L("导出", "Export"))
+        self._preferences_menu.setTitle("Settings")
+        self._settings_action.setText("Settings · 设置…")
+        for action, zh, en in self._settings_sections:
+            action.setText(L(zh,en))
+        self._settings_sections[0][0].setText("界面语言 / Language…")
         self._rotation_scope_menu.setTitle(tr("旋转范围"))
         self._update_rotation_scope_button()
         self._help_menu.setTitle(tr("帮助(&H)"))
@@ -1688,11 +1773,13 @@ class MainWindow(QMainWindow):
             )
             self.setWindowTitle(f"{APP_NAME} — {self._current_file.name}")
 
-    def _show_settings(self) -> None:
-        dialog = SettingsDialog(self._config, self)
+    def _show_settings(self, section=None) -> None:
+        dialog = SettingsDialog(self._config, self, self._toolbar_options)
+        if isinstance(section,str):
+            dialog.select_section(section)
         if dialog.exec() != QDialog.DialogCode.Accepted:
+            dialog.deleteLater()
             return
-        previous = self._config
         updated = dialog.get_config()
         if updated.ghostscript_path:
             executable = Path(updated.ghostscript_path).expanduser()
@@ -1703,6 +1790,25 @@ class MainWindow(QMainWindow):
                 )
                 return
 
+        try:
+            self._config_manager.save(updated)
+        except OSError as error:
+            self.show_nonfatal_error(tr("设置"),str(error))
+            return
+        if self._host is not None:
+            self._host.controller.apply_settings(updated)
+        else:
+            self._apply_config(updated)
+        self.statusBar().showMessage(tr("设置已保存"),2500)
+        if dialog.requested_tool:
+            action = self._toolbar_options.get(dialog.requested_tool)
+            if action is not None and action.isEnabled():
+                QTimer.singleShot(0,action.trigger)
+        dialog.deleteLater()
+
+    def _apply_config(self, updated):
+        previous = self._config
+        updated = AppConfig.from_mapping(updated.__dict__)
         ghostscript_changed = updated.ghostscript_path != previous.ghostscript_path
         refresh_just_enabled = updated.auto_refresh and not previous.auto_refresh
         language_changed = updated.language != previous.language
@@ -1715,15 +1821,25 @@ class MainWindow(QMainWindow):
             updated.background_color,
         )
         self._view.set_wheel_action(updated.wheel_action)
+        if self._comparison is not None:
+            for name in ("linked", "locked", "follow"):
+                getattr(self._comparison, "_" + name).setChecked(getattr(updated, "compare_" + name))
+            for pane in (self._comparison.left, self._comparison.right):
+                pane.view.set_page_background(updated.background_mode, updated.background_color)
+                pane.view.set_wheel_action(updated.wheel_action)
         self._auto_refresh_action.blockSignals(True)
         self._auto_refresh_action.setChecked(updated.auto_refresh)
         self._auto_refresh_action.blockSignals(False)
-        saved = self._save_config()
-        if language_changed:
-            set_language(updated.language)
-            self._retranslate_ui()
-        if saved:
-            self.statusBar().showMessage(tr("设置已保存"), 2500)
+        self._select_text_action.blockSignals(True)
+        self._select_text_action.setChecked(updated.auto_select_text)
+        self._select_text_action.blockSignals(False)
+        self._view.set_text_selection_mode(updated.auto_select_text)
+        self._rotation_scope_group.blockSignals(True)
+        (self._rotate_all_action if updated.rotation_scope == "all" else self._rotate_current_action).setChecked(True)
+        self._rotation_scope_group.blockSignals(False)
+        self._refresh_toolbar()
+        set_language(updated.language)
+        self._retranslate_ui()
 
         if (ghostscript_changed or refresh_just_enabled) and self._current_file is not None:
             self._generation += 1
@@ -1748,6 +1864,8 @@ class MainWindow(QMainWindow):
     def _save_config(self) -> bool:
         try:
             self._config_manager.save(self._config)
+            if self._host is not None:
+                self._host.controller.apply_settings(self._config,exclude=self)
         except OSError as error:
             self.statusBar().showMessage(
                 tr("无法保存 config.json：{error}", error=error), 6000
@@ -1904,12 +2022,38 @@ class MainWindow(QMainWindow):
             self._check_updates_action.setEnabled(True)
 
     def show_nonfatal_error(self, title: str, message: str) -> None:
+        if "Ghostscript" in title and self._renderer.ghostscript_path is None:
+            self._show_ghostscript_help(message)
+            return
         context = self._diagnostic_context()
         self._diagnostics.record(title, message, context)
         box = QMessageBox(QMessageBox.Icon.Warning, title, message,
                           QMessageBox.StandardButton.Close, self)
         box.setDetailedText(self._diagnostics.report(context, self._renderer.ghostscript_path))
         box.exec()
+
+    def _show_ghostscript_help(self, message):
+        from i18n import bilingual as L
+        if self._config.suppress_ghostscript_help:
+            QMessageBox.warning(self, tr("未找到 Ghostscript"), message)
+            return
+        box = QMessageBox(QMessageBox.Icon.Warning, tr("未找到 Ghostscript"), "", parent=self)
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(L("EPS/PS 预览及 PostScript 导出需要 Ghostscript。安装后重新打开文件，或在设置中指定路径。",
+                      "EPS/PS preview and PostScript export require Ghostscript. Install it and reopen the file, or set its path in Settings.")
+                    + '<br><br><a href="https://ghostscript.com/releases/gsdnld.html">Download Ghostscript</a>')
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        for label in box.findChildren(QLabel):
+            label.setOpenExternalLinks(True)
+        check = QCheckBox(L("不再显示安装指引", "Do not show installation guidance again"))
+        box.setCheckBox(check)
+        settings = box.addButton(tr("设置(&P)…"), QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        self._config.suppress_ghostscript_help = check.isChecked()
+        self._save_config()
+        if box.clickedButton() == settings:
+            self._show_settings()
 
     def _diagnostic_context(self):
         state = self._current_transforms().snapshot()

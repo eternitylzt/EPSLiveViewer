@@ -79,6 +79,92 @@ class DocumentWorkspaceTests(unittest.TestCase):
     def ready(self, view):
         wait_for(lambda: view._current_pdf is not None and view._page_count > 0)
 
+    def test_close_final_tab_returns_home_and_preferences_synchronize(self):
+        from dataclasses import replace
+        from dialogs import SettingsDialog
+        self.view.open_eps(self.png)
+        self.ready(self.view)
+        other_host = self.controller.new_window(self.png)
+        other = other_host.tabs.currentWidget()
+        self.ready(other)
+        other._rotate_right_action.trigger()
+        before = other._current_transforms().snapshot()
+        config = replace(self.view._config,home_recent=False,auto_refresh=False,
+                         auto_select_text=False,rotation_scope="all",video_fps=7,
+                         video_format="gif",text_list_visible=True,toolbar_tools=["open","fit"])
+        dialog = SettingsDialog(config,self.view,self.view._toolbar_options)
+        self.assertEqual(dialog.get_config(),config)
+        self.assertEqual(dialog.tabs.count(),5)
+        dialog.reject()
+        self.controller.config_manager.save(config)
+        self.controller.apply_settings(config)
+        for view in (self.view,other):
+            self.assertEqual(view._config,config)
+            self.assertTrue(view._welcome.recents.isHidden())
+            self.assertFalse(view._auto_refresh_action.isChecked())
+            self.assertTrue(view._rotate_all_action.isChecked())
+            self.assertNotIn(view._zoom_in_action,view._toolbar.actions())
+        self.assertEqual(other._current_transforms().snapshot(),before)
+        self.host.close_tab(0)
+        APP.processEvents()
+        self.assertTrue(self.host.isVisible())
+        self.assertEqual(self.host.tabs.count(),1)
+        home = self.host.tabs.currentWidget()
+        self.assertIsNone(home._current_file)
+        self.assertIs(home._pages.currentWidget(),home._welcome)
+        self.assertEqual(home._config,config)
+        self.host.close_tab(0)
+        self.assertTrue(self.host.isVisible())
+
+    def test_initial_window_fits_small_desktop_and_recent_activation(self):
+        from PyQt6.QtCore import QRect
+        from window_geometry import fit_initial_window
+        from unittest.mock import Mock
+        screen = Mock()
+        screen.availableGeometry.return_value = QRect(0,0,1024,728)
+        with patch("window_geometry.QGuiApplication.screenAt",return_value=screen):
+            fit_initial_window(self.host,1250,850)
+        APP.processEvents()
+        self.assertLessEqual(self.host.frameGeometry().bottom(),728)
+        self.assertLessEqual(self.host.frameGeometry().right(),1024)
+        home = self.view._welcome
+        home.set_recent_files([str(self.png)])
+        self.assertEqual([home.recents.horizontalHeaderItem(i).text() for i in range(4)],
+                         ["文件","大小","最近打开时间","文件位置"])
+        self.assertEqual(home.recents.item(0,0).text(),"sample.png")
+        self.assertIn("B",home.recents.item(0,1).text())
+        self.assertEqual(home.recents.item(0,3).text(),str(self.png.parent))
+        selected = []
+        home.recent_requested.connect(selected.append)
+        home.recents.setCurrentCell(0,0)
+        QTest.keyClick(home.recents,Qt.Key.Key_Return)
+        opened = self.host.tabs.currentWidget()
+        self.ready(opened)
+        self.assertEqual(selected,[str(self.png)])
+        self.assertEqual(opened._current_file,self.png)
+        self.assertIsNone(self.view._current_file)
+        self.host.home_button.click()
+        self.assertIs(self.host.tabs.currentWidget(),self.view)
+
+    def test_home_has_no_close_and_menu_is_above_tabs(self):
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtWidgets import QTabBar
+        self.host.add_document(self.png)
+        self.ready(self.host.tabs.currentWidget())
+        APP.processEvents()
+        bar = self.host.tabs.tabBar()
+        self.assertFalse(bar.isTabVisible(0))
+        self.assertLessEqual(abs(self.host.home_button.height()-bar.height()),1)
+        for side in (QTabBar.ButtonPosition.LeftSide,QTabBar.ButtonPosition.RightSide):
+            button = bar.tabButton(0,side)
+            self.assertTrue(button is None or not button.isVisible())
+        menu_bottom = self.view.menuBar().mapToGlobal(QPoint(0,self.view.menuBar().height())).y()
+        self.assertLessEqual(menu_bottom,bar.mapToGlobal(QPoint(0,0)).y())
+        self.assertEqual(self.view._preferences_menu.title(),"Settings")
+        self.assertEqual(self.view._settings_sections[0][0].text(),"界面语言 / Language…")
+        self.host.close_tab(1)
+        self.assertEqual(self.host.tabs.count(),1)
+
     def test_independent_tabs_toolbar_defaults_and_save_cancel(self):
         self.view.open_eps(self.png)
         self.ready(self.view)

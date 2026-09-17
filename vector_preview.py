@@ -1,7 +1,7 @@
 """Zoom-independent EPS preview backed by a temporary vector PDF.
 
 Ghostscript converts EPS to PDF only when the source changes.  QtPdf then
-renders small, visible-area tiles from that vector document.  The screen is of
+renders the visible region as a complete frame from that vector document.  The screen is of
 course raster, but every zoom level is freshly sampled from vector data instead
 of magnifying one fixed-DPI PNG.
 """
@@ -9,7 +9,7 @@ of magnifying one fixed-DPI PNG.
 from __future__ import annotations
 
 import math
-from collections import OrderedDict, deque
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +33,7 @@ from PyQt6.QtGui import (
     QDropEvent,
     QMouseEvent,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
     QTransform,
@@ -52,15 +53,11 @@ class VectorPreviewError(RuntimeError):
     """Raised when QtPdf cannot load a generated preview document."""
 
 
-TileKey = tuple[int, int, int]  # scale level, column, row
-
-
 @dataclass(frozen=True)
 class _RenderRequest:
     kind: str
     generation: int
     page_index: int
-    key: TileKey | None
     full_size: QSize
     clip: QRect
 
@@ -76,162 +73,75 @@ class _DocumentContext:
 
 
 class _PdfPageItem(QGraphicsItem):
-    """One PDF page whose visible regions are painted from an LRU tile cache."""
-
-    CACHE_LIMIT_BYTES = 96 * 1024 * 1024
-
-    def __init__(self, page_size: QSizeF) -> None:
+    """A small overview and one complete, visible-region detail image."""
+    def __init__(self, page_size):
         super().__init__()
-        self._page_rect = QRectF(0.0, 0.0, float(page_size.width()), float(page_size.height()))
+        self._page_rect = QRectF(0, 0, page_size.width(), page_size.height())
         self._overview = QPixmap()
-        self._tiles: OrderedDict[TileKey, QPixmap] = OrderedDict()
-        self._tile_clips = {}
+        self._frame = QPixmap()
+        self._frame_request = None
+        self._frame_rect = QRectF()
         self._cache_bytes = 0
-        self._level = 0
-        self._full_size = QSize(
-            max(1, int(math.ceil(page_size.width()))),
-            max(1, int(math.ceil(page_size.height()))),
-        )
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption, True)
 
-    def boundingRect(self) -> QRectF:  # type: ignore[override]
+    def boundingRect(self):
         return self._page_rect
 
-    def set_overview(self, pixmap: QPixmap) -> None:
+    def _account_memory(self):
+        self._cache_bytes = sum(p.width() * p.height() * 4 for p in (self._overview, self._frame))
+
+    def set_overview(self, pixmap):
         self._overview = pixmap
+        self._account_memory()
         self.update()
 
-    def set_render_grid(self, level: int, full_size: QSize) -> None:
-        if self._level == level and self._full_size == full_size:
-            return
-        self._level = level
-        self._full_size = QSize(full_size)
+    def set_frame(self, pixmap, request):
+        self._frame = pixmap
+        self._frame_request = request
+        clip, size = request.clip, request.full_size
+        self._frame_rect = QRectF(clip.x() * self._page_rect.width() / size.width(),
+                                  clip.y() * self._page_rect.height() / size.height(),
+                                  clip.width() * self._page_rect.width() / size.width(),
+                                  clip.height() * self._page_rect.height() / size.height())
+        self._account_memory()
         self.update()
 
-    def has_tile(self, key: TileKey) -> bool:
-        return key in self._tiles
+    def covers(self, full_size, visible_pixels):
+        request = self._frame_request
+        return (request is not None and request.full_size == full_size
+                and request.clip.contains(visible_pixels))
 
-    def add_tile(self, key: TileKey, pixmap: QPixmap, clip=None) -> None:
-        previous = self._tiles.pop(key, None)
-        if previous is not None:
-            self._cache_bytes -= self._pixmap_bytes(previous)
-        self._tiles[key] = pixmap
-        if clip is not None:
-            self._tile_clips[key] = QRect(clip)
-        self._cache_bytes += self._pixmap_bytes(pixmap)
-        self._trim_cache()
-        if key[0] == self._level:
-            self.update(self.tile_scene_rect(key, pixmap.width(), pixmap.height()))
+    def release_detail(self):
+        self._frame = QPixmap()
+        self._frame_request = None
+        self._frame_rect = QRectF()
+        self._account_memory()
+        self.update()
 
-    def clear_cache(self) -> None:
-        self._tiles.clear()
-        self._tile_clips.clear()
+    def clear_cache(self):
         self._overview = QPixmap()
-        self._cache_bytes = 0
-        self.update()
+        self.release_detail()
 
-    @staticmethod
-    def _pixmap_bytes(pixmap: QPixmap) -> int:
-        return max(0, pixmap.width()) * max(0, pixmap.height()) * 4
-
-    def _trim_cache(self) -> None:
-        while self._cache_bytes > self.CACHE_LIMIT_BYTES and len(self._tiles) > 1:
-            _key, old = self._tiles.popitem(last=False)
-            self._tile_clips.pop(_key, None)
-            self._cache_bytes -= self._pixmap_bytes(old)
-
-    def tile_scene_rect(self, key: TileKey, pixel_width: int, pixel_height: int) -> QRectF:
-        _level, column, row = key
-        full_width = max(1, self._full_size.width())
-        full_height = max(1, self._full_size.height())
-        # The caller uses fixed-size tiles except at page edges.  Derive the
-        # pixel origin from the standard tile size, while the size comes from
-        # the actual returned image.
-        x_pixels = column * VectorGraphicsView.TILE_PIXELS
-        y_pixels = row * VectorGraphicsView.TILE_PIXELS
-        return QRectF(
-            x_pixels * self._page_rect.width() / full_width,
-            y_pixels * self._page_rect.height() / full_height,
-            pixel_width * self._page_rect.width() / full_width,
-            pixel_height * self._page_rect.height() / full_height,
-        )
-
-    def paint(
-        self,
-        painter: QPainter,
-        option: QStyleOptionGraphicsItem,
-        widget: QWidget | None = None,
-    ) -> None:  # type: ignore[override]
-        del widget
-        exposed = option.exposedRect.intersected(self._page_rect)
-        if exposed.isEmpty():
-            return
-
-        full_width = max(1, self._full_size.width())
-        full_height = max(1, self._full_size.height())
-        tile = VectorGraphicsView.TILE_PIXELS
-        left_px = max(0, int(math.floor(exposed.left() * full_width / self._page_rect.width())))
-        top_px = max(0, int(math.floor(exposed.top() * full_height / self._page_rect.height())))
-        right_px = min(
-            full_width - 1,
-            int(math.ceil(exposed.right() * full_width / self._page_rect.width())),
-        )
-        bottom_px = min(
-            full_height - 1,
-            int(math.ceil(exposed.bottom() * full_height / self._page_rect.height())),
-        )
-
+    def paint(self, painter, option, widget=None):
+        del option, widget
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-        for row in range(top_px // tile, bottom_px // tile + 1):
-            for column in range(left_px // tile, right_px // tile + 1):
-                key = (self._level, column, row)
-                pixel_x = column * tile
-                pixel_y = row * tile
-                pixel_width = min(tile, full_width - pixel_x)
-                pixel_height = min(tile, full_height - pixel_y)
-                if pixel_width <= 0 or pixel_height <= 0:
-                    continue
-                target = QRectF(
-                    pixel_x * self._page_rect.width() / full_width,
-                    pixel_y * self._page_rect.height() / full_height,
-                    pixel_width * self._page_rect.width() / full_width,
-                    pixel_height * self._page_rect.height() / full_height,
-                )
-
-                detailed = self._tiles.get(key)
-                if detailed is not None:
-                    self._tiles.move_to_end(key)
-                    clip = self._tile_clips.get(key)
-                    if clip is None:
-                        painter.drawPixmap(target, detailed, QRectF(detailed.rect()))
-                    else:
-                        # Keep a two-pixel gutter for interpolation. Each tile
-                        # paints only its own core, avoiding gaps/double alpha.
-                        expanded = QRectF(clip.x() * self._page_rect.width() / full_width,
-                                          clip.y() * self._page_rect.height() / full_height,
-                                          clip.width() * self._page_rect.width() / full_width,
-                                          clip.height() * self._page_rect.height() / full_height)
-                        painter.save()
-                        painter.setClipRect(target, Qt.ClipOperation.IntersectClip)
-                        painter.drawPixmap(expanded, detailed, QRectF(detailed.rect()))
-                        painter.restore()
-                    continue
-
-                # A small full-page overview is the instant fallback while a
-                # vector-detail tile is in flight.  Crop it to the missing tile
-                # so overview and detailed content are never painted twice.
-                if not self._overview.isNull():
-                    source = QRectF(
-                        target.left() * self._overview.width() / self._page_rect.width(),
-                        target.top() * self._overview.height() / self._page_rect.height(),
-                        target.width() * self._overview.width() / self._page_rect.width(),
-                        target.height() * self._overview.height() / self._page_rect.height(),
-                    )
-                    painter.drawPixmap(target, self._overview, source)
+        if not self._overview.isNull():
+            painter.save()
+            if not self._frame.isNull():
+                # Avoid double-compositing transparent content. Frame edges
+                # normally lie outside the viewport's prefetched margin.
+                outside = QPainterPath()
+                outside.addRect(self._page_rect)
+                inside = QPainterPath()
+                inside.addRect(self._frame_rect)
+                painter.setClipPath(outside.subtracted(inside), Qt.ClipOperation.IntersectClip)
+            painter.drawPixmap(self._page_rect, self._overview, QRectF(self._overview.rect()))
+            painter.restore()
+        if not self._frame.isNull():
+            painter.drawPixmap(self._frame_rect, self._frame, QRectF(self._frame.rect()))
 
 
 class VectorGraphicsView(QGraphicsView):
-    """Interactive, tiled vector-source preview for a multi-page PDF."""
+    """Interactive vector-source preview with bounded visible-region frames."""
 
     zoom_changed = pyqtSignal(float)
     image_loaded = pyqtSignal(float, float)
@@ -242,11 +152,12 @@ class VectorGraphicsView(QGraphicsView):
     file_navigation_requested = pyqtSignal(int)
     page_navigation_requested = pyqtSignal(int)
     viewport_changed = pyqtSignal()
+    edit_text_requested = pyqtSignal(object)
 
-    TILE_PIXELS = 768
-    MAX_IN_FLIGHT = 4
-    OVERVIEW_MAX_EDGE = 1600
-    DETAIL_DEBOUNCE_MS = 100
+    MAX_IN_FLIGHT = 1
+    MAX_DETAIL_PIXELS = 6_000_000
+    OVERVIEW_MAX_EDGE = 960
+    DETAIL_DEBOUNCE_MS = 35
     MIN_ZOOM = 0.01
     MAX_ZOOM = 512.0
 
@@ -261,6 +172,7 @@ class VectorGraphicsView(QGraphicsView):
         self._page_index = 0
         self._page_count = 0
         self._text_mode = False
+        self.text_edit_enabled = False
         self._text_regions_key = None
         self._text_regions = []
         self.setMouseTracking(True)
@@ -269,8 +181,8 @@ class VectorGraphicsView(QGraphicsView):
         self._selection = None
         self._contexts: dict[int, _DocumentContext] = {}
         self._queued: deque[_RenderRequest] = deque()
-        self._queued_keys: set[TileKey] = set()
         self._in_flight = 0
+        self._wanted_detail = None
         self._fit_mode = True
         self._background_mode = "white"
         self._background_color = QColor("#FFFFFF")
@@ -290,7 +202,7 @@ class VectorGraphicsView(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.SmartViewportUpdate)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setRenderHints(
             QPainter.RenderHint.Antialiasing
             | QPainter.RenderHint.TextAntialiasing
@@ -299,7 +211,7 @@ class VectorGraphicsView(QGraphicsView):
 
         self._detail_timer = QTimer(self)
         self._detail_timer.setSingleShot(True)
-        self._detail_timer.timeout.connect(self._refresh_visible_tiles)
+        self._detail_timer.timeout.connect(self._refresh_visible_frame)
         self.horizontalScrollBar().valueChanged.connect(self._schedule_detail)
         self.verticalScrollBar().valueChanged.connect(self._schedule_detail)
         self.horizontalScrollBar().valueChanged.connect(self._notify_viewport)
@@ -381,7 +293,7 @@ class VectorGraphicsView(QGraphicsView):
         inverted: bool = False,
         replacements: tuple[ColorReplacement, ...] = (),
     ) -> None:
-        """Apply session transforms and refresh tiles from the vector document."""
+        """Apply session transforms and refresh the viewport from the vector document."""
         rotation = int(rotation) % 360
         if rotation not in {0, 90, 180, 270}:
             rotation = 0
@@ -408,7 +320,6 @@ class VectorGraphicsView(QGraphicsView):
             self._invalidate_colors()
             self._page_item.clear_cache()
             self._queued.clear()
-            self._queued_keys.clear()
             context = self._active_context
             if context is not None and context.active:
                 page = self._page_item.boundingRect()
@@ -464,7 +375,7 @@ class VectorGraphicsView(QGraphicsView):
         reset_view: bool = False,
         page_index: int = 0,
     ) -> None:
-        """Load and validate a unique PDF cache, then start tiled rendering.
+        """Load and validate a unique PDF cache, then start viewport rendering.
 
         A newly opened file fits the window.  Live refreshes retain zoom and a
         normalized page center; fit mode remains fit mode even if page geometry
@@ -520,13 +431,12 @@ class VectorGraphicsView(QGraphicsView):
             old_context.active = False
             # The old page item is removed immediately, so its queued detail
             # work has no remaining visual value.  Cancel it instead of letting
-            # rapid live-refresh generations monopolize the active tile queue.
+            # rapid live-refresh generations monopolize the active render queue.
             self._dispose_context(old_context, cancel=True)
             self._contexts.pop(old_context.generation, None)
         if self._page_item is not None:
             self._scene.removeItem(self._page_item)
         self._queued.clear()
-        self._queued_keys.clear()
 
         self._page_item = _PdfPageItem(point_size)
         self._scene.addItem(self._page_item)
@@ -582,7 +492,6 @@ class VectorGraphicsView(QGraphicsView):
         self._invalidate_colors()
         self._detail_timer.stop()
         self._queued.clear()
-        self._queued_keys.clear()
         if self._page_item is not None:
             self._scene.removeItem(self._page_item)
         self._page_item = _PdfPageItem(point_size)
@@ -666,6 +575,13 @@ class VectorGraphicsView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
+            if self.text_edit_enabled and self._over_text(event.position()):
+                point = self.mapToScene(event.position().toPoint()) - self._page_item.sceneBoundingRect().topLeft()
+                self._selection_start = self._selection = None
+                self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+                QTimer.singleShot(0, lambda: self.edit_text_requested.emit(point))
+                event.accept()
+                return
             self.reset_to_actual_size()
             event.accept()
             return
@@ -744,6 +660,23 @@ class VectorGraphicsView(QGraphicsView):
         if self._selection is not None and self._selection.text():
             QApplication.clipboard().setText(self._selection.text())
 
+    def hideEvent(self, event):
+        self._detail_timer.stop()
+        self._queued.clear()
+        self._wanted_detail = None
+        self._invalidate_colors()
+        if self._page_item is not None:
+            self._page_item.release_detail()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.has_document():
+            if self._page_item._overview.isNull():
+                page = self._page_item.boundingRect()
+                self._request_overview(self._active_context, page.width(), page.height())
+            self._schedule_detail(immediate=True)
+
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         if self._fit_mode and self.has_document():
@@ -808,10 +741,12 @@ class VectorGraphicsView(QGraphicsView):
     def clear_document(self) -> None:
         self._selection = None
         self._selection_start = None
+        self._text_regions = []
+        self._text_regions_key = None
+        self._wanted_detail = None
         self._invalidate_colors()
         self._detail_timer.stop()
         self._queued.clear()
-        self._queued_keys.clear()
         if self._page_item is not None:
             self._scene.removeItem(self._page_item)
             self._page_item = None
@@ -841,17 +776,9 @@ class VectorGraphicsView(QGraphicsView):
         self._notify_viewport()
 
     def _schedule_detail(self, _value: int | None = None, immediate: bool = False) -> None:
-        if not self.has_document() or self._closed:
+        if not self.has_document() or self._closed or not self.isVisible():
             return
         self._detail_timer.start(0 if immediate else self.DETAIL_DEBOUNCE_MS)
-
-    @staticmethod
-    def _scale_level(effective_scale: float) -> tuple[int, float]:
-        # Half-octave buckets avoid re-rendering for every wheel tick.  A small
-        # oversample margin keeps paths crisp between adjacent buckets.
-        safe_scale = max(0.0625, min(float(effective_scale) * 2.0, 1024.0))
-        level = int(math.ceil(math.log2(safe_scale) * 2.0))
-        return level, 2.0 ** (level / 2.0)
 
     def _visible_page_rect(self) -> QRectF:
         if self._page_item is None:
@@ -860,105 +787,53 @@ class VectorGraphicsView(QGraphicsView):
         visible_item = self._page_item.mapFromScene(visible_scene).boundingRect()
         return visible_item.intersected(self._page_item.boundingRect())
 
-    def _refresh_visible_tiles(self) -> None:
-        context = self._active_context
-        item = self._page_item
-        if context is None or item is None or not context.active:
+    def _refresh_visible_frame(self) -> None:
+        """Coalesce pan/zoom requests into one bounded, atomic viewport frame."""
+        context, item = self._active_context, self._page_item
+        if context is None or item is None or not context.active or not self.isVisible():
             return
-        page = item.boundingRect()
-        visible = self._visible_page_rect()
+        page, visible = item.boundingRect(), self._visible_page_rect()
         if visible.isEmpty():
             return
-
         effective = abs(self.transform().m11()) * max(1.0, self.viewport().devicePixelRatioF())
-        level, render_scale = self._scale_level(effective)
-        full_size = QSize(
-            max(1, int(math.ceil(page.width() * render_scale))),
-            max(1, int(math.ceil(page.height() * render_scale))),
-        )
-        item.set_render_grid(level, full_size)
+        # A short pan margin avoids resampling on every small drag. Limit the
+        # visible-region allocation, even at extreme zoom or on large displays.
+        margin = 48 / max(effective, .01)
+        wanted = visible.adjusted(-margin, -margin, margin, margin).intersected(page)
+        scale = min(effective * 2,
+                    math.sqrt(self.MAX_DETAIL_PIXELS / max(1, wanted.width() * wanted.height())))
+        full_size = QSize(max(1, round(page.width() * scale)), max(1, round(page.height() * scale)))
+        sx, sy = full_size.width() / page.width(), full_size.height() / page.height()
 
-        tile = self.TILE_PIXELS
-        # Prefetch one quarter tile around the viewport, which makes small pans
-        # feel immediate without allowing an unbounded render queue.
-        pad_x = tile * page.width() / max(1, full_size.width()) * 0.25
-        pad_y = tile * page.height() / max(1, full_size.height()) * 0.25
-        wanted = visible.adjusted(-pad_x, -pad_y, pad_x, pad_y).intersected(page)
-        left = max(0, int(math.floor(wanted.left() * full_size.width() / page.width())))
-        top = max(0, int(math.floor(wanted.top() * full_size.height() / page.height())))
-        right = min(
-            full_size.width() - 1,
-            int(math.ceil(wanted.right() * full_size.width() / page.width())),
-        )
-        bottom = min(
-            full_size.height() - 1,
-            int(math.ceil(wanted.bottom() * full_size.height() / page.height())),
-        )
+        def pixels(rect):
+            left, top = math.floor(rect.left() * sx), math.floor(rect.top() * sy)
+            right, bottom = math.ceil(rect.right() * sx), math.ceil(rect.bottom() * sy)
+            return QRect(left, top, max(1, right - left), max(1, bottom - top)).intersected(
+                QRect(0, 0, full_size.width(), full_size.height()))
 
-        center = wanted.center()
-        requests: list[tuple[float, _RenderRequest]] = []
-        pending_keys = {
-            request.key
-            for request in context.pending.values()
-            if request.kind == "tile"
-            and request.page_index == self._page_index
-            and request.key is not None
-        }
-        pending_keys.update(
-            request.key for revision, request in self._color_jobs.values()
-            if revision == self._color_revision and request.generation == context.generation
-            and request.page_index == self._page_index
-        )
-        for row in range(top // tile, bottom // tile + 1):
-            for column in range(left // tile, right // tile + 1):
-                key: TileKey = (level, column, row)
-                if item.has_tile(key) or key in pending_keys:
-                    continue
-                pixel_x = column * tile
-                pixel_y = row * tile
-                clip = QRect(
-                    pixel_x,
-                    pixel_y,
-                    min(tile, full_size.width() - pixel_x),
-                    min(tile, full_size.height() - pixel_y),
-                )
-                clip = clip.adjusted(-2, -2, 2, 2).intersected(QRect(0, 0, full_size.width(), full_size.height()))
-                scene_center = QPointF(
-                    (clip.center().x() + 0.5) * page.width() / full_size.width(),
-                    (clip.center().y() + 0.5) * page.height() / full_size.height(),
-                )
-                distance = (scene_center.x() - center.x()) ** 2 + (
-                    scene_center.y() - center.y()
-                ) ** 2
-                requests.append(
-                    (
-                        distance,
-                        _RenderRequest(
-                            "tile",
-                            context.generation,
-                            self._page_index,
-                            key,
-                            full_size,
-                            clip,
-                        ),
-                    )
-                )
-
-        # Drop not-yet-submitted requests from obsolete zoom/pan states.
+        if item.covers(full_size, pixels(visible)):
+            self._wanted_detail = None
+            self._queued.clear()
+            return
+        request = _RenderRequest("detail", context.generation, self._page_index,
+                                 full_size, pixels(wanted))
+        self._wanted_detail = request
         self._queued.clear()
-        self._queued_keys.clear()
-        for _distance, request in sorted(requests, key=lambda pair: pair[0]):
+        # Keep the last complete image while working; discard stale results
+        # and submit only the latest requested viewport next.
+        pending = list(context.pending.values()) + [
+            req for revision, req in self._color_jobs.values() if revision == self._color_revision]
+        if request not in pending:
             self._queued.append(request)
-            if request.key is not None:
-                self._queued_keys.add(request.key)
         self._pump_queue()
 
     def _request_overview(self, context: _DocumentContext, width: float, height: float) -> None:
+        if self._fit_mode:
+            return  # The first fitted frame is already the complete page.
         scale = min(2.0, self.OVERVIEW_MAX_EDGE / max(width, height, 1.0))
-        scale = max(scale, 0.125)
         size = QSize(max(1, int(math.ceil(width * scale))), max(1, int(math.ceil(height * scale))))
         request = _RenderRequest(
-            "overview", context.generation, self._page_index, None, size, QRect()
+            "overview", context.generation, self._page_index, size, QRect()
         )
         options = QPdfDocumentRenderOptions()
         request_id = context.renderer.requestPage(self._page_index, size, options)
@@ -979,12 +854,14 @@ class VectorGraphicsView(QGraphicsView):
             request = self._queued.popleft()
             if request.generation != context.generation:
                 continue
-            if request.key is not None:
-                self._queued_keys.discard(request.key)
             options = QPdfDocumentRenderOptions()
-            options.setScaledSize(request.full_size)
-            options.setScaledClipRect(request.clip)
             output_size = request.clip.size()
+            if request.clip != QRect(0, 0, request.full_size.width(), request.full_size.height()):
+                options.setScaledSize(request.full_size)
+                # QtPdf 6.8/6.9 uses inclusive QRect.right()/bottom() in its
+                # matrix. Add one to the extent to avoid shrinking each region.
+                options.setScaledClipRect(QRect(request.clip.x(), request.clip.y(),
+                                                request.clip.width() + 1, request.clip.height() + 1))
             request_id = context.renderer.requestPage(
                 request.page_index, output_size, options
             )
@@ -1014,6 +891,8 @@ class VectorGraphicsView(QGraphicsView):
             and context is self._active_context
             and self._page_item is not None
             and request.page_index == self._page_index
+            and self.isVisible()
+            and (request.kind == "overview" or request == self._wanted_detail)
         ):
             if image.isNull():
                 self.render_error.emit(tr("QtPdf 无法渲染预览区域。"))
@@ -1036,15 +915,23 @@ class VectorGraphicsView(QGraphicsView):
         self._pump_queue()
         active = self._active_context
         if active is not None and not self._queued and not active.pending:
-            # Scrolling may have changed while the final tile was running.
+            # Scrolling may have changed while the previous frame was running.
             self._schedule_detail()
 
     def _install_image(self, request, image):
         pixmap = QPixmap.fromImage(image)
         if request.kind == "overview":
             self._page_item.set_overview(pixmap)
-        elif request.key is not None:
-            self._page_item.add_tile(request.key, pixmap, request.clip)
+        elif request == self._wanted_detail:
+            self._page_item.set_frame(pixmap, request)
+            if self._page_item._overview.isNull():
+                if request.clip == QRect(0, 0, request.full_size.width(), request.full_size.height()):
+                    self._page_item.set_overview(pixmap.scaled(
+                        self.OVERVIEW_MAX_EDGE, self.OVERVIEW_MAX_EDGE,
+                        Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                elif self._active_context is not None:
+                    page = self._page_item.boundingRect()
+                    self._request_overview(self._active_context, page.width(), page.height())
 
     def _on_colors_ready(self, number, image, error, cancelled):
         entry = self._color_jobs.pop(number, None)
@@ -1054,7 +941,9 @@ class VectorGraphicsView(QGraphicsView):
         context = self._active_context
         if (not cancelled and revision == self._color_revision and context is not None
                 and request.generation == context.generation
-                and request.page_index == self._page_index and self._page_item is not None):
+                and request.page_index == self._page_index and self._page_item is not None
+                and self.isVisible()
+                and (request.kind == "overview" or request == self._wanted_detail)):
             if error is not None:
                 self.render_error.emit(str(error))
             elif image is not None:
