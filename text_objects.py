@@ -302,7 +302,10 @@ def make_stamp(path, style):
     font.setBold(style.bold)
     font.setItalic(style.italic)
     raw = QRawFont.fromFont(font)
-    missing = "".join(dict.fromkeys(c for c in style.text if not raw.supportsCharacter(ord(c))))
+    # Space and other layout whitespace do not require an outline glyph.
+    missing = "".join(dict.fromkeys(
+        c for c in style.text if not c.isspace() and not raw.supportsCharacter(ord(c))
+    ))
     if missing:
         raise ValueError("The selected font does not contain: " + missing)
     from PyQt6.QtGui import QImage

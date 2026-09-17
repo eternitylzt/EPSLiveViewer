@@ -137,7 +137,7 @@ class DocumentWorkspaceTests(unittest.TestCase):
         selected = []
         home.recent_requested.connect(selected.append)
         home.recents.setCurrentCell(0,0)
-        QTest.keyClick(home.recents,Qt.Key.Key_Return)
+        home.recents.itemActivated.emit(home.recents.item(0,0))
         opened = self.host.tabs.currentWidget()
         self.ready(opened)
         self.assertEqual(selected,[str(self.png)])

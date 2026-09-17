@@ -80,7 +80,9 @@ def paint_stamp(path,style):
             raise ValueError("Invalid text style")
         font = char_format(run).font()
         raw = QRawFont.fromFont(font)
-        missing = "".join(dict.fromkeys(c for c in run.text if not raw.supportsCharacter(ord(c))))
+        missing = "".join(dict.fromkeys(
+            c for c in run.text if not c.isspace() and not raw.supportsCharacter(ord(c))
+        ))
         if missing:
             raise ValueError("The selected font does not contain: "+missing)
     doc = make_document(style)
