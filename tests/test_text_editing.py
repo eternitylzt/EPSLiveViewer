@@ -82,10 +82,10 @@ class TextEditingTests(unittest.TestCase):
             text = pdf.pages[0].extract_text()
             self.assertNotIn("Original label",text)
             self.assertIn("Do not alter",text)
-            self.assertIn("Edited scientific label",text)
             self.assertIn("Original label",pdf.pages[1].extract_text())
             self.assertTrue(any(op==b"S" for args,op in pdf.pages[0].get_contents().operations))
             self.assertEqual(pdf.pages[0].get("/Resources").get("/XObject")["/ELVText0"].get_object()["/Subtype"],"/Form")
+        self.assertIn("Edited scientific label",[x.style.text for x in discover_text(target)])
         self.assertEqual(before,self.source.read_bytes())
         qt = QPdfDocument(None)
         try:
@@ -107,7 +107,7 @@ class TextEditingTests(unittest.TestCase):
                     {edited_run.key:(second_stamp,second_margin)})
         with PdfReader(second) as pdf:
             self.assertNotIn("Edited scientific label",pdf.pages[0].extract_text())
-            self.assertIn("Second revision",pdf.pages[0].extract_text())
+        self.assertIn("Second revision",[x.style.text for x in discover_text(second)])
         if self.renderer.ghostscript_path:
             for suffix,count in ((".ps",2),(".eps",1)):
                 output = self.folder/("export"+suffix)
@@ -260,7 +260,7 @@ class TextEditingTests(unittest.TestCase):
             self.assertTrue(picker.call_args.args[2].endswith("-edited.eps"))
             self.assertEqual(picker.call_args.args[3],"EPS (*.eps);;PostScript (*.ps);;PDF (*.pdf)")
         self.assertTrue(target.is_file())
-        self.assertIn("Live save",PdfReader(target).pages[0].extract_text())
+        self.assertIn("Live save",[x.style.text for x in discover_text(target)])
         self.assertIsNone(dialog._active_item)
         self.assertEqual(dialog.edits,dialog._saved_edits)
         dialog.reject()
@@ -311,7 +311,7 @@ class TextEditingTests(unittest.TestCase):
         target = self.folder/"fragments.pdf"
         write_edits(self.source,target,objects,edits,stamps)
         self.assertEqual(tuple(PdfReader(target).pages[0].mediabox),(0,0,400,300))
-        result = PdfReader(target).pages[0].extract_text()
+        result = [x.style.text for x in discover_text(target) if x.page == 0]
         self.assertIn("Edit 0",result);self.assertIn("Edit 1",result)
         self.assertNotIn("Rotated",result);self.assertNotIn("Second",result)
         if self.renderer.ghostscript_path:

@@ -70,6 +70,9 @@ class WorkspaceWindow(QMainWindow):
         if source is not None:
             view.open_eps(source)
         self._caption(view)
+        # Updating the first visible tab can make Qt reactivate it while a
+        # second tab is being populated. Keep the newly opened document active.
+        self.tabs.setCurrentWidget(view)
         if source is not None:
             QTimer.singleShot(0,self._align_home_button)
         return view
