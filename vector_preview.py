@@ -661,6 +661,11 @@ class VectorGraphicsView(QGraphicsView):
             QApplication.clipboard().setText(self._selection.text())
 
     def hideEvent(self, event):
+        # Some native Qt backends can deliver Hide before Python finishes
+        # initializing this subclass (notably while reparenting editor views).
+        if not hasattr(self, "_detail_timer"):
+            super().hideEvent(event)
+            return
         self._detail_timer.stop()
         self._queued.clear()
         self._wanted_detail = None
@@ -671,6 +676,8 @@ class VectorGraphicsView(QGraphicsView):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if not hasattr(self, "_detail_timer"):
+            return
         if self.has_document():
             if self._page_item._overview.isNull():
                 page = self._page_item.boundingRect()
