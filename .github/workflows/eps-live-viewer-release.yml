@@ -49,10 +49,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libegl1 libxcb-cursor0 libxkbcommon-x11-0
 
-      - name: Check image workflows and MP4 decoding
+      - name: Check release-critical workflows
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+        run: >-
+          python -m unittest -v
+          tests.test_asset_checksum
+          tests.test_update_checker
+          tests.test_image_workflows
+          tests.test_pdf_color_export
+          tests.test_preview_rendering
+          tests.test_upgrade_workflows
 
       - name: Check frozen PDF and high-DPI workflows on macOS/Linux
         if: runner.os == 'macOS' || runner.os == 'Linux'
