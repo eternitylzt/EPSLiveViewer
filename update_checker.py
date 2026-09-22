@@ -1,9 +1,11 @@
-"""Manual GitHub release lookup using only the Python standard library."""
+"""Manual GitHub release lookup with verified HTTPS and bundled CA roots."""
 
 from __future__ import annotations
 
 import json
 import re
+import ssl
+import certifi
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -40,6 +42,13 @@ def is_newer_version(candidate: str, current: str) -> bool:
     return version_tuple(candidate) > version_tuple(current)
 
 
+def tls_context():
+    """Preserve available system roots and add relocatable public CA roots."""
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
+    return context
+
+
 def check_latest_release(timeout: float = 6.0) -> ReleaseInfo:
     """Return GitHub's latest stable release or raise a user-facing error."""
     request = Request(
@@ -51,7 +60,7 @@ def check_latest_release(timeout: float = 6.0) -> ReleaseInfo:
         },
     )
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with urlopen(request, timeout=timeout, context=tls_context()) as response:
             payload = response.read(_MAX_RESPONSE_BYTES + 1)
     except HTTPError as error:
         raise UpdateCheckError(f"GitHub API returned HTTP {error.code}.") from error

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import ssl
 import unittest
 from unittest.mock import patch
 from urllib.error import URLError
@@ -42,6 +43,10 @@ class UpdateCheckerTests(unittest.TestCase):
             ).encode()
         )
         release = check_latest_release()
+        context = mocked_urlopen.call_args.kwargs["context"]
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+        self.assertGreater(context.cert_store_stats()["x509_ca"], 0)
         self.assertEqual(release.version, "1.4.0")
         self.assertEqual(release.tag, "eps-live-viewer-v1.4.0")
 

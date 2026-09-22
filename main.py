@@ -51,6 +51,10 @@ def application_icon_path() -> Path:
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--verify-update"]:
+        from update_checker import check_latest_release
+        print(check_latest_release(timeout=20))
+        return 0
     # Qt 6 enables high-DPI pixmaps automatically on supported desktop systems.
     app = EpsApplication(sys.argv)
     app.setApplicationName("EPS Live Viewer")

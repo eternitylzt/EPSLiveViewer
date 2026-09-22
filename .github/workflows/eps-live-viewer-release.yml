@@ -8,9 +8,9 @@ on:
         required: true
         default: eps-live-viewer-v3.1.0
       target:
-        description: Build all platforms or replace only the Apple Silicon DMG
+        description: Build all platforms or replace selected macOS DMGs
         type: choice
-        options: [all, macos-arm64]
+        options: [all, macos-arm64, macos]
         default: all
   push:
     tags:
@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event.inputs.target == 'macos-arm64' && '[{"runner":"macos-latest","target":"macOS Apple Silicon","artifact":"EPSLiveViewer-macOS-arm64.dmg"}]' || '[{"runner":"windows-latest","target":"Windows x64","artifact":"EPSLiveViewer-Windows-x64.zip"},{"runner":"ubuntu-latest","target":"Linux x64","artifact":"EPSLiveViewer-Linux-x64.tar.gz"},{"runner":"macos-latest","target":"macOS Apple Silicon","artifact":"EPSLiveViewer-macOS-arm64.dmg"},{"runner":"macos-15-intel","target":"macOS Intel","artifact":"EPSLiveViewer-macOS-x64.dmg"}]') }}
+        include: ${{ fromJSON(github.event.inputs.target == 'macos-arm64' && '[{"runner":"macos-latest","target":"macOS Apple Silicon","artifact":"EPSLiveViewer-macOS-arm64.dmg"}]' || github.event.inputs.target == 'macos' && '[{"runner":"macos-latest","target":"macOS Apple Silicon","artifact":"EPSLiveViewer-macOS-arm64.dmg"},{"runner":"macos-15-intel","target":"macOS Intel","artifact":"EPSLiveViewer-macOS-x64.dmg"}]' || '[{"runner":"windows-latest","target":"Windows x64","artifact":"EPSLiveViewer-Windows-x64.zip"},{"runner":"ubuntu-latest","target":"Linux x64","artifact":"EPSLiveViewer-Linux-x64.tar.gz"},{"runner":"macos-latest","target":"macOS Apple Silicon","artifact":"EPSLiveViewer-macOS-arm64.dmg"},{"runner":"macos-15-intel","target":"macOS Intel","artifact":"EPSLiveViewer-macOS-x64.dmg"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
 
@@ -165,6 +165,9 @@ jobs:
           python scripts/configure_macos_bundle.py \
             dist/EPSLiveViewer.app/Contents/Info.plist "$APP_VERSION"
 
+          # Exercise the actual app without the build Python's CA path.
+          SSL_CERT_FILE=/nonexistent/ca.pem SSL_CERT_DIR=/nonexistent \
+            dist/EPSLiveViewer.app/Contents/MacOS/EPSLiveViewer --verify-update
           FORMALLY_SIGNED=false
           if [[ -n "$MACOS_CERTIFICATE" && -n "$MACOS_CERTIFICATE_PASSWORD" ]]; then
             KEYCHAIN_PATH="$RUNNER_TEMP/eps-live-viewer.keychain-db"
@@ -239,18 +242,19 @@ jobs:
           merge-multiple: true
 
       - name: Create checksums
-        if: github.event.inputs.target != 'macos-arm64'
+        if: github.event.inputs.target != 'macos-arm64' && github.event.inputs.target != 'macos'
         run: sha256sum release-assets/* > release-assets/SHA256SUMS.txt
 
       - name: Preserve checksums for unchanged packages
-        if: github.event.inputs.target == 'macos-arm64'
+        if: github.event.inputs.target == 'macos-arm64' || github.event.inputs.target == 'macos'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
         run: |
           gh release download "$RELEASE_TAG" --pattern SHA256SUMS.txt --dir release-assets
-          python scripts/update_asset_checksum.py release-assets/SHA256SUMS.txt \
-            release-assets/EPSLiveViewer-macOS-arm64.dmg
+          for asset in release-assets/*.dmg; do
+            python scripts/update_asset_checksum.py release-assets/SHA256SUMS.txt "$asset"
+          done
 
       - name: Create or update GitHub Release
         env:
@@ -258,10 +262,10 @@ jobs:
           RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
           RELEASE_TARGET: ${{ github.event.inputs.target }}
         run: |
-          if [[ "$RELEASE_TARGET" == "macos-arm64" ]]; then
+          if [[ "$RELEASE_TARGET" == "macos-arm64" || "$RELEASE_TARGET" == "macos" ]]; then
             gh release view "$RELEASE_TAG" >/dev/null
             gh release upload "$RELEASE_TAG" \
-              release-assets/EPSLiveViewer-macOS-arm64.dmg \
+              release-assets/*.dmg \
               release-assets/SHA256SUMS.txt --clobber
             exit 0
           fi

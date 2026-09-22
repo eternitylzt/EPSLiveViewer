@@ -1,0 +1,3 @@
+certifi bundles Mozilla public CA certificates for verified HTTPS.
+Upstream: https://github.com/certifi/python-certifi
+License: MPL-2.0 (see LICENSE).
