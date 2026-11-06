@@ -1,5 +1,19 @@
 # Packaging regression check
 
+## 3.1.1
+
+The Home corner now reports its actual size hint to Qt (formerly positioned
+16 px too low and overlapping the first tab). Geometry, tab independence,
+IPC startup and Ghostscript cache invalidation have regression coverage.
+
+Same-machine Windows source measurements with a synthetic 1,600-segment EPS,
+using `tests/profile_open.py` against f95aa62 and this revision:
+one-file working set about 84 → 73 MiB; two tabs about 89 → 77 MiB.
+40 tab activations take 50–60 → 12–24 ms, with zero repeated translations.
+EPS conversion/display remains about 0.4 s; source import drops from 409 ms
+(warm baseline run) to 84–122 ms. These are local measurements, not guarantees
+for packaged cold launches, arbitrary documents or other hardware.
+
 ## 3.1.0
 
 All 41 source regressions pass on Windows, including menus above the tabs,

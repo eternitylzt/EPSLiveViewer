@@ -1,4 +1,10 @@
-# EPS Live Viewer 3.1.0
+# EPS Live Viewer 3.1.1
+
+## 3.1.1 / 2026-11-06
+
+- Home 图标随标签栏对齐；延后加载可选工具，复用图标与 Ghostscript 路径，避免切换标签时重复初始化。
+- Home icon alignment; deferred optional tools, reused icons/Ghostscript discovery, and less repeated tab initialization.
+- 保留原有文件、预览、编辑与导出功能。Existing document, preview, editing and export features retained.
 
 ## 3.1.0 中文
 

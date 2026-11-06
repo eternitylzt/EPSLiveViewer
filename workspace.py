@@ -4,16 +4,38 @@ import hashlib
 import json
 from pathlib import Path
 
-from PyQt6.QtCore import QLockFile, QStandardPaths, Qt, QTimer
+from PyQt6.QtCore import QEvent, QLockFile, QStandardPaths, Qt, QTimer, QSize
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTabBar, QToolButton, QStyle, QStackedWidget, QSizePolicy
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
 
 from config import APP_NAME
 from i18n import set_language, tr
-from viewer import MainWindow
 from window_geometry import fit_initial_window
 from branding import tool_icon
+
+
+class HomeButton(QToolButton):
+    """Give Qt's corner layout the real square size, not an icon-only hint."""
+
+    def __init__(self, tab_bar):
+        super().__init__()
+        self._tab_bar = tab_bar
+        tab_bar.installEventFilter(self)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def sizeHint(self):
+        side = max(34, self._tab_bar.sizeHint().height())
+        return QSize(side, side)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.FontChange,
+                            QEvent.Type.StyleChange, QEvent.Type.LayoutRequest):
+            self.updateGeometry()
+        return super().eventFilter(watched, event)
 
 
 class WorkspaceWindow(QMainWindow):
@@ -30,13 +52,11 @@ class WorkspaceWindow(QMainWindow):
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideMiddle)
         self.tabs.setStyleSheet("QTabBar::tab { min-width: 100px; max-width: 210px; padding: 7px 14px; margin: 2px 2px 0 0; border-bottom: 3px solid transparent; } QTabBar::tab:selected { border-bottom: 3px solid #20B8AC; background: palette(base); font-weight: 600; } QTabBar::tab:!selected { background: palette(button); }")
-        self.home_button = QToolButton()
+        self.home_button = HomeButton(self.tabs.tabBar())
         self.home_button.setIcon(tool_icon("home",self.palette().color(self.foregroundRole())))
         self.home_button.setToolTip("Home / 首页")
         self.home_button.setAccessibleName("Home")
         self.home_button.setAutoRaise(True)
-        tab_height = self.tabs.tabBar().sizeHint().height()
-        self.home_button.setFixedSize(max(34,tab_height),max(30,tab_height))
         self.home_button.clicked.connect(self.show_home)
         self.tabs.setCornerWidget(self.home_button,Qt.Corner.TopLeftCorner)
         self._menu_stack = QStackedWidget()
@@ -51,6 +71,8 @@ class WorkspaceWindow(QMainWindow):
         self.addAction(close)
 
     def add_document(self, source=None):
+        # A second file-association launch only needs the IPC router.
+        from viewer import MainWindow
         view = MainWindow(self.controller.config_manager, self.tabs)
         view._host = self
         bar = view.menuBar()
@@ -78,8 +100,7 @@ class WorkspaceWindow(QMainWindow):
         return view
 
     def _align_home_button(self):
-        height=max(30,self.tabs.tabBar().height(),self.tabs.tabBar().sizeHint().height())
-        self.home_button.setFixedSize(height,height)
+        self.home_button.updateGeometry()
 
     def show_home(self):
         for index in range(self.tabs.count()):
@@ -120,7 +141,8 @@ class WorkspaceWindow(QMainWindow):
         if view is not None:
             self._menu_stack.setCurrentWidget(view.menuBar())
             set_language(view._config.language)
-            view._retranslate_ui()
+            if view._ui_language != view._config.language:
+                view._retranslate_ui()
             self._caption(view)
             view._view.setFocus()
         self.controller.active_window = self

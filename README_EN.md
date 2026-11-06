@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-Current version: **3.1.0**.
+Current version: **3.1.1**. Improved Home alignment, startup and tab switching, with less repeated loading and lower memory use.
 
 **1.0: viewing and live refresh → 2.0: recoloring, comparison and export extensions → 3.0: lightweight editing of recognizable text.**
 

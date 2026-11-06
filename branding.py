@@ -1,5 +1,6 @@
 """Resolution-independent brand mark and lightweight toolbar line icons."""
 import math
+from functools import lru_cache
 from PyQt6.QtCore import Qt, QRectF, QPointF
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 
@@ -31,6 +32,12 @@ def logo_pixmap(size=128):
 
 def tool_icon(name, color):
     """Draw in logical coordinates at several sizes; no font-icon dependency."""
+    return QIcon(_cached_tool_icon(name, QColor(color).rgba()))
+
+
+@lru_cache(maxsize=128)
+def _cached_tool_icon(name, rgba):
+    color = QColor.fromRgba(rgba)
     icon = QIcon()
     for size in (24,32,48,64):
         pm = QPixmap(size,size)

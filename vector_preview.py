@@ -835,7 +835,7 @@ class VectorGraphicsView(QGraphicsView):
         self._pump_queue()
 
     def _request_overview(self, context: _DocumentContext, width: float, height: float) -> None:
-        if self._fit_mode:
+        if self._fit_mode or not self.isVisible():
             return  # The first fitted frame is already the complete page.
         scale = min(2.0, self.OVERVIEW_MAX_EDGE / max(width, height, 1.0))
         size = QSize(max(1, int(math.ceil(width * scale))), max(1, int(math.ceil(height * scale))))

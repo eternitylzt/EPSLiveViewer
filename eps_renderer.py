@@ -156,6 +156,7 @@ class EpsRenderer:
             QImageReader.setAllocationLimit(256)
         self._settings_lock = threading.Lock()
         self._configured_ghostscript_path = ghostscript_path
+        self._resolved_ghostscript_path: Path | None = None
         self._default_dpi = self._validated_dpi(dpi)
         self._device_cache: dict[Path, frozenset[str]] = {}
         self.cache = RenderCache()
@@ -192,12 +193,20 @@ class EpsRenderer:
     def ghostscript_path(self) -> Path | None:
         with self._settings_lock:
             configured = self._configured_ghostscript_path
-        return find_ghostscript(configured)
+            cached = self._resolved_ghostscript_path
+        if cached is not None and cached.is_file():
+            return cached
+        located = find_ghostscript(configured)
+        with self._settings_lock:
+            if configured == self._configured_ghostscript_path:
+                self._resolved_ghostscript_path = located
+        return located
 
     def set_ghostscript_path(self, path: str) -> None:
         """Set the path used by jobs that start after this call."""
         with self._settings_lock:
             self._configured_ghostscript_path = path.strip()
+            self._resolved_ghostscript_path = None
 
     def set_dpi(self, dpi: int) -> None:
         """Set only the legacy default for calls that omit ``dpi``."""

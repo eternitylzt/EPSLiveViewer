@@ -54,12 +54,9 @@ from config import (
     SUPPORTED_SOURCE_SUFFIXES,
     filename_sort_key,
 )
-from color_dialog import ColorReplacementDialog
 from welcome import WelcomePage
 from branding import tool_icon
 from window_geometry import fit_initial_window
-from comparison import ComparisonDialog
-from dialogs import PngExportDialog, SettingsDialog
 from diagnostics import Diagnostics, DiagnosticsDialog
 from eps_renderer import (
     EpsRenderCancelledError,
@@ -71,18 +68,12 @@ from eps_renderer import (
 from file_monitor import EpsFileMonitor
 from i18n import set_language, tr, bilingual as L
 from image_transforms import DocumentTransforms, TransformSnapshot, TransformHistory
-from update_checker import (
-    ReleaseInfo,
-    check_latest_release,
-    is_newer_version,
-)
 from video_creator import (
     VideoExportCancelled,
     VideoExporter,
     VideoExportRequest,
     VideoFrameSource,
 )
-from video_dialog import VideoCreationDialog
 from vector_preview import VectorGraphicsView, VectorPreviewError
 from document_state import load_state, save_state, state_path
 
@@ -296,6 +287,7 @@ class UpdateCheckWorker(QObject):
     @pyqtSlot()
     def run(self) -> None:
         try:
+            from update_checker import check_latest_release
             release = check_latest_release()
         except Exception as error:
             self.failed.emit(error)
@@ -989,6 +981,7 @@ class MainWindow(QMainWindow):
         self._apply_current_transforms()
 
     def _show_comparison(self):
+        from comparison import ComparisonDialog
         if self._current_file is None or not self._page_count:
             return
         if self._comparison is not None:
@@ -1056,6 +1049,7 @@ class MainWindow(QMainWindow):
         exporter = VideoExporter(self._renderer)
         from document_palette import vector_palette
         pdf, page_index = self._current_pdf, self._current_page_index
+        from color_dialog import ColorReplacementDialog
         dialog = ColorReplacementDialog(
             state.replacements, self,
             preview_loader=lambda cancel: exporter.read_original(frame, 72, cancel, 900),
@@ -1106,9 +1100,10 @@ class MainWindow(QMainWindow):
         valid=set(files[:self.MAX_RECENT_FILES])
         self._settings.setValue("recentFileMetadata",json.dumps(
             {path:data for path,data in metadata.items() if path in valid},ensure_ascii=False))
-        self._update_recent_menu()
         if self._host is not None:
             self._host.controller.refresh_recent_files()
+        else:
+            self._update_recent_menu()
 
     def _remove_recent_file(self, filename: str) -> None:
         self._settings.setValue(
@@ -1314,6 +1309,7 @@ class MainWindow(QMainWindow):
             initial_output = initial_output.with_name(
                 f"{initial_output.stem}_page{self._current_page_index + 1}.png"
             )
+        from dialogs import PngExportDialog
         dialog = PngExportDialog(
             initial_output,
             self._config.export_dpi,
@@ -1583,6 +1579,7 @@ class MainWindow(QMainWindow):
             path: state.snapshot()
             for path, state in self._document_transforms.items()
         })
+        from video_dialog import VideoCreationDialog
         dialog = VideoCreationDialog(
             initial_folder,
             self._renderer,
@@ -1695,6 +1692,7 @@ class MainWindow(QMainWindow):
     # ----- Settings and status --------------------------------------------
 
     def _retranslate_ui(self) -> None:
+        self._ui_language = self._config.language
         self._welcome.retranslate()
         action_texts = (
             (self._edit_text_action, "编辑文字…"),
@@ -1774,6 +1772,7 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"{APP_NAME} — {self._current_file.name}")
 
     def _show_settings(self, section=None) -> None:
+        from dialogs import SettingsDialog
         dialog = SettingsDialog(self._config, self, self._toolbar_options)
         if isinstance(section,str):
             dialog.select_section(section)
@@ -1972,6 +1971,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(object)
     def _on_update_check_succeeded(self, release: ReleaseInfo) -> None:
+        from update_checker import is_newer_version
         if self._closing:
             return
         self.statusBar().clearMessage()

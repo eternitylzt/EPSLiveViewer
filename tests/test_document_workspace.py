@@ -155,6 +155,9 @@ class DocumentWorkspaceTests(unittest.TestCase):
         bar = self.host.tabs.tabBar()
         self.assertFalse(bar.isTabVisible(0))
         self.assertLessEqual(abs(self.host.home_button.height()-bar.height()),1)
+        self.assertLessEqual(abs(self.host.home_button.y()-bar.y()),1)
+        self.assertLessEqual(self.host.home_button.geometry().right(),bar.x())
+        self.assertLessEqual(abs(self.host.home_button.width()-bar.height()),1)
         for side in (QTabBar.ButtonPosition.LeftSide,QTabBar.ButtonPosition.RightSide):
             button = bar.tabButton(0,side)
             self.assertTrue(button is None or not button.isVisible())
@@ -212,6 +215,21 @@ class DocumentWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.view._current_transforms().rotation_for(1), 0)
         self.host.open_file(self.png, "window")
         self.assertEqual(len(self.controller.windows), 2)
+
+    def test_switching_tabs_reuses_document_and_translations(self):
+        self.view.open_eps(self.png)
+        self.ready(self.view)
+        second = self.host.add_document(self.png)
+        self.ready(second)
+        document = self.view._view._active_context.document
+        generation = self.view._generation
+        with patch.object(self.view, "_retranslate_ui") as translate:
+            for _ in range(5):
+                self.host.tabs.setCurrentWidget(self.view)
+                self.host.tabs.setCurrentWidget(second)
+            translate.assert_not_called()
+        self.assertIs(self.view._view._active_context.document, document)
+        self.assertEqual(self.view._generation, generation)
 
     def test_external_process_open_request(self):
         received = []

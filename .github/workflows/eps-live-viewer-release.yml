@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Existing or new release tag
         required: true
-        default: eps-live-viewer-v3.1.0
+        default: eps-live-viewer-v3.1.1
       target:
         description: Build all platforms or replace selected macOS DMGs
         type: choice
@@ -60,6 +60,8 @@ jobs:
           tests.test_pdf_color_export
           tests.test_preview_rendering
           tests.test_upgrade_workflows
+          tests.test_startup
+          tests.test_document_workspace
 
       - name: Check frozen PDF and high-DPI workflows on macOS/Linux
         if: runner.os == 'macOS' || runner.os == 'Linux'
@@ -273,10 +275,10 @@ jobs:
             gh release delete-asset "$RELEASE_TAG" EPSLiveViewer-macOS-arm64.zip --yes || true
             gh release delete-asset "$RELEASE_TAG" EPSLiveViewer-macOS-x64.zip --yes || true
             gh release upload "$RELEASE_TAG" release-assets/* --clobber
-            gh release edit "$RELEASE_TAG" --notes-file RELEASE_NOTES.md
+            gh release edit "$RELEASE_TAG" --notes-file RELEASE_ANNOUNCEMENT.md
           else
             gh release create "$RELEASE_TAG" release-assets/* \
               --verify-tag \
-              --notes-file RELEASE_NOTES.md \
+              --notes-file RELEASE_ANNOUNCEMENT.md \
               --title "EPS Live Viewer ${RELEASE_TAG#eps-live-viewer-}"
           fi
