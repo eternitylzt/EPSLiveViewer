@@ -51,6 +51,11 @@ def application_icon_path() -> Path:
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--verify-ghostscript"]:
+        import json
+        from scripts.verify_bundled_ghostscript import verify
+        print(json.dumps(verify(), ensure_ascii=False, indent=2))
+        return 0
     if sys.argv[1:] == ["--verify-update"]:
         from update_checker import check_latest_release
         print(check_latest_release(timeout=20))

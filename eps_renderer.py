@@ -313,6 +313,8 @@ class EpsRenderer:
         cancel_event: _CancellationEvent | None,
     ) -> tuple[int, str, str]:
         """Run Ghostscript while draining both pipes and honoring cancellation."""
+        from ghostscript_runtime import ghostscript_environment
+
         process: subprocess.Popen[str] | None = None
         stdout = ""
         stderr = ""
@@ -324,6 +326,7 @@ class EpsRenderer:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env=ghostscript_environment(command[0]),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             # communicate(timeout=...) drains both pipes while allowing regular

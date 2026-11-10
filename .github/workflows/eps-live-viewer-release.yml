@@ -6,7 +6,11 @@ on:
       release_tag:
         description: Existing or new release tag
         required: true
-        default: eps-live-viewer-v3.1.1
+        default: eps-live-viewer-v3.2.0
+      publish_release:
+        description: Publish packages after successful builds (disable for build-only verification)
+        type: boolean
+        default: true
       target:
         description: Build all platforms or replace selected macOS DMGs
         type: choice
@@ -49,6 +53,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libegl1 libxcb-cursor0 libxkbcommon-x11-0
 
+      - name: Prepare bundled Ghostscript
+        run: python scripts/prepare_ghostscript.py
+
+      - name: Verify bundled Ghostscript without system discovery
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python scripts/verify_bundled_ghostscript.py
+
+      - name: Preserve corresponding Ghostscript source
+        if: runner.os == 'Windows' || (matrix.target == 'macOS Apple Silicon' && (inputs.target == 'macos' || inputs.target == 'macos-arm64'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghostscript-source
+          path: build/ghostscript/downloads/ghostscript-10.08.0.tar.xz
+          if-no-files-found: error
+
       - name: Check release-critical workflows
         env:
           QT_QPA_PLATFORM: offscreen
@@ -62,6 +82,7 @@ jobs:
           tests.test_upgrade_workflows
           tests.test_startup
           tests.test_document_workspace
+          tests.test_ghostscript_runtime
 
       - name: Check frozen PDF and high-DPI workflows on macOS/Linux
         if: runner.os == 'macOS' || runner.os == 'Linux'
@@ -76,7 +97,7 @@ jobs:
             bundle_mode=--onefile
             smoke_exe=pdf-smoke-dist/PdfColorSmoke
           fi
-          python -m PyInstaller --noconfirm "$bundle_mode" --console \
+          python -m PyInstaller --noconfirm "$bundle_mode" --console --exclude-module numpy \
             --name PdfColorSmoke --paths . --additional-hooks-dir hooks \
             --distpath pdf-smoke-dist --workpath pdf-smoke-build \
             tests/test_pdf_color_export.py
@@ -98,7 +119,7 @@ jobs:
           EPS_REQUIRE_COCOA: "1"
           EPS_CONTROL_SCREENSHOTS: packaged-control-screenshots
         run: |
-          python -m PyInstaller --noconfirm --onedir --console \
+          python -m PyInstaller --noconfirm --onedir --console --exclude-module numpy \
             --name ControlsSmoke --paths . --additional-hooks-dir hooks \
             --distpath control-dist --workpath control-build tests/test_desktop_controls.py
           control-dist/ControlsSmoke/ControlsSmoke -v
@@ -117,7 +138,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --exclude-module numpy `
             --name EPSLiveViewer `
             --icon "resources\icon.ico" `
             --add-data "resources;resources" `
@@ -125,22 +146,25 @@ jobs:
             main.py
           New-Item -ItemType Directory -Force package, packages | Out-Null
           Copy-Item dist\EPSLiveViewer.exe package\
-          Copy-Item -Path config.json, README.md, README_EN.md -Destination package\
+          $check = Start-Process -FilePath dist\EPSLiveViewer.exe -ArgumentList '--verify-ghostscript' -PassThru -WindowStyle Hidden
+          if (-not $check.WaitForExit(120000)) { Stop-Process -Id $check.Id; throw 'Bundled engine check timed out' }
+          if ($check.ExitCode -ne 0) { throw 'Bundled engine check failed' }
+          Copy-Item -Path config.json, README.md, README_EN.md, LICENSE, THIRD_PARTY_NOTICES.md -Destination package\
           Compress-Archive -Path package\* -DestinationPath "packages\${{ matrix.artifact }}"
 
       - name: Build Linux executable
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed \
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --exclude-module numpy \
             --name EPSLiveViewer \
             --add-data "resources:resources" \
-            --collect-all imageio_ffmpeg \
             --additional-hooks-dir hooks \
             main.py
           mkdir -p package packages
           chmod +x dist/EPSLiveViewer
-          cp dist/EPSLiveViewer README.md README_EN.md package/
+          QT_QPA_PLATFORM=offscreen dist/EPSLiveViewer --verify-ghostscript
+          cp dist/EPSLiveViewer README.md README_EN.md LICENSE THIRD_PARTY_NOTICES.md package/
           tar -C package -czf "packages/${{ matrix.artifact }}" .
 
       - name: Build macOS application
@@ -155,17 +179,18 @@ jobs:
           MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
           MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed \
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --exclude-module numpy \
             --name EPSLiveViewer \
             --icon resources/icon.icns \
             --osx-bundle-identifier com.zhentongli.epsliveviewer \
             --add-data "resources:resources" \
-            --collect-all imageio_ffmpeg \
             --additional-hooks-dir hooks \
             main.py
           APP_VERSION="${RELEASE_TAG#eps-live-viewer-v}"
           python scripts/configure_macos_bundle.py \
             dist/EPSLiveViewer.app/Contents/Info.plist "$APP_VERSION"
+
+          QT_QPA_PLATFORM=offscreen dist/EPSLiveViewer.app/Contents/MacOS/EPSLiveViewer --verify-ghostscript
 
           # Exercise the actual app without the build Python's CA path.
           SSL_CERT_FILE=/nonexistent/ca.pem SSL_CERT_DIR=/nonexistent \
@@ -197,7 +222,7 @@ jobs:
           mkdir -p dmg-root packages
           cp -R dist/EPSLiveViewer.app dmg-root/
           ln -s /Applications dmg-root/Applications
-          cp README.md README_EN.md dmg-root/
+          cp README.md README_EN.md LICENSE THIRD_PARTY_NOTICES.md dmg-root/
           hdiutil create \
             -volname "EPS Live Viewer ${APP_VERSION}" \
             -srcfolder dmg-root \
@@ -226,7 +251,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/eps-live-viewer-v') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/eps-live-viewer-v')) || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -243,6 +268,12 @@ jobs:
           pattern: EPSLiveViewer-*
           merge-multiple: true
 
+      - name: Download corresponding source
+        uses: actions/download-artifact@v4
+        with:
+          name: Ghostscript-source
+          path: release-assets
+
       - name: Create checksums
         if: github.event.inputs.target != 'macos-arm64' && github.event.inputs.target != 'macos'
         run: sha256sum release-assets/* > release-assets/SHA256SUMS.txt
@@ -257,6 +288,12 @@ jobs:
           for asset in release-assets/*.dmg; do
             python scripts/update_asset_checksum.py release-assets/SHA256SUMS.txt "$asset"
           done
+          source_asset=release-assets/ghostscript-10.08.0.tar.xz
+          if grep -Fq ghostscript-10.08.0.tar.xz release-assets/SHA256SUMS.txt; then
+            python scripts/update_asset_checksum.py release-assets/SHA256SUMS.txt "$source_asset"
+          else
+            sha256sum "$source_asset" >> release-assets/SHA256SUMS.txt
+          fi
 
       - name: Create or update GitHub Release
         env:
@@ -268,6 +305,7 @@ jobs:
             gh release view "$RELEASE_TAG" >/dev/null
             gh release upload "$RELEASE_TAG" \
               release-assets/*.dmg \
+              release-assets/*.tar.xz \
               release-assets/SHA256SUMS.txt --clobber
             exit 0
           fi

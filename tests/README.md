@@ -1,5 +1,18 @@
 # Packaging regression check
 
+## 3.2.0 bundled interpreter
+
+Run `python scripts/prepare_ghostscript.py` followed by
+`python main.py --verify-ghostscript`. Run the same flag on the actual frozen
+executable. A missing private interpreter is a failure, never a skip.
+The check empties PATH and pollutes GS variables, then verifies embedded
+fonts/ICC, all five required devices, multipage vectors, 600 DPI transparency,
+rotation/recolor PS/EPS round trips, failed-output protection and cancellation.
+
+Windows source suite: 51 tests, 50 pass and one old user sample unavailable;
+the independent synthetic multipage fixture is exercised by the bundled check.
+Cross-platform package results are recorded by the build-only/release workflow.
+
 ## 3.1.1
 
 The Home corner now reports its actual size hint to Qt (formerly positioned

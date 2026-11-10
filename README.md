@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-当前版本：**3.1.1**。本次改进 Home 对齐、启动与标签切换效率，减少重复加载和内存占用。
+当前版本：**3.2.0**。发布包内置精简部署的 Ghostscript，打开 EPS/PS 无需另行安装解释器；保留原有预览、编辑和导出功能。
 
 **1.0：浏览与实时刷新 → 2.0：换色、比较与导出扩展 → 3.0：可识别文字的轻量编辑。**
 
@@ -49,7 +49,7 @@ EPS 导出保留页面画布及留白，不再随图形内容收紧边界。旋�
 
 颜色替换条目用实际颜色显示色值。选色器提供当前页可识别绘制色和单独标注的预览采样色，也保留任意 RGB/HEX 选色。源色按反色之后、替换之前显示；目标色提供原始颜色。采样可能含抗锯齿过渡色，并非完整的原始颜色清单。
 
-缺少 Ghostscript 时提供下载链接及路径设置入口，可关闭重复安装指引；操作失败仍会提示。
+发布包默认使用内置 Ghostscript，也可在设置中指定外部版本。只有引擎缺失或源码运行环境未准备好时，才需要修复发布包或安装外部 Ghostscript。
 
 EPS Live Viewer 是面向科研绘图快速迭代的轻量级跨平台桌面查看器。它能实时查看 EPS/PS/PDF，也能直接打开 PNG/JPG，在同一个界面中完成相邻文件比较、多页浏览、旋转、反色、替换颜色、图片导出和视频制作。
 
@@ -87,7 +87,7 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级跨平台桌面查�
 - macOS Intel：下载 `EPSLiveViewer-macOS-x64.dmg`。
 - Linux x64：解压 `EPSLiveViewer-Linux-x64.tar.gz`，为程序添加执行权限后运行。
 
-发布包无需 Python。读取 EPS/PS 或导出为 EPS/PS 需要 Ghostscript；程序会自动查找，也可在“文件 → 设置”中指定路径。阅读普通 PDF、打开 PNG/JPG、调色、PNG 导出及视频制作不需要 Ghostscript。普通 PDF 的矢量调色导出也无需 Ghostscript；遇到需要位图兼容处理的复杂 PDF 时，文档导出会明确提示安装 Ghostscript。
+发布包已包含 Python 运行时、Ghostscript 和视频编码器，无需另外安装 Python 或 Ghostscript。设置中的 Ghostscript 路径留空即可使用内置引擎；已有的手动路径设置继续有效。内置资源随程序提供，无需首次联网下载。
 
 ## 使用方法
 
@@ -120,7 +120,7 @@ EPS Live Viewer 是面向科研绘图快速迭代的轻量级跨平台桌面查�
 
 ### 为什么 EPS/PS 无法显示？
 
-确认已安装 Ghostscript，并在设置中选择控制台程序：Windows 通常为 `gswin64c.exe`，Linux/macOS 通常为 `gs`。
+3.2.0 起发布包自带 Ghostscript。先清空设置中失效的手动路径，并确认下载包完整；仍失败时可在“帮助 → 诊断”查看实际引擎路径和错误。源码运行者先执行 `python scripts/prepare_ghostscript.py`，也可安装外部 Ghostscript。
 
 ### 为什么 PNG/JPG 放大后不再清晰？
 
@@ -161,9 +161,11 @@ PNG/JPG 是位图；程序不会凭空增加细节。EPS/PS 中原本嵌入的�
 <details>
 <summary>开发与构建信息</summary>
 
-开发环境为 Python 3.11+、PyQt6、Ghostscript、PyInstaller。安装依赖后可运行 `python main.py example.eps`。Windows 运行 `build.bat` 生成单文件 EXE；Linux/macOS 使用 `build_unix.sh`。推送 `eps-live-viewer-v*` 标签会触发原生 Windows、Linux、macOS Apple Silicon/Intel 构建并创建 GitHub Release。
+开发环境为 Python 3.11+、PyQt6、Ghostscript、PyInstaller。安装依赖后执行 `python scripts/prepare_ghostscript.py` 准备校验过的引擎，再运行 `python main.py example.eps`。Windows 运行 `build.bat` 生成单文件 EXE；Linux/macOS 使用 `build_unix.sh`，需要本机 C/C++ 编译器和 make。构建时下载依赖，用户运行时无需下载。推送 `eps-live-viewer-v*` 标签会触发原生四平台构建；发布检查强制使用内置引擎，且随包提供对应 Ghostscript 源码。
 
-PDF 阅读复用已有 QtPdf；颜色计算使用精简打包的 Pillow 原生运算，矢量调色使用纯 Python 的 pypdf。不打包 Pillow 的 AVIF、WebP、字体或 Tk 组件，也不引入完整 PDF 编辑引擎。Ghostscript 仍是唯一的 EPS/PostScript 解释器。
+PDF 阅读复用已有 QtPdf；颜色计算使用精简打包的 Pillow 原生运算，矢量调色使用纯 Python 的 pypdf。不打包未使用的 NumPy 或 Pillow 的 AVIF、WebP、字体和 Tk 组件。Ghostscript 保留完整文档解释及内置字体、CMap、ICC 资源，避免重复携带安装器、示例和资源副本。详细分析见 [内置引擎说明](docs/ghostscript-bundling.md)。
+
+本项目按 **AGPL-3.0-only** 开源，见 [LICENSE](LICENSE)。第三方组件保留各自许可，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。分发集成版时，请同时提供匹配版本的应用源码、Ghostscript 源码及构建脚本。
 
 试播使用 Qt 定时器和临时 PNG，不引入 QtMultimedia；内存最多缓存 8 张试播帧，关闭窗口后清理临时文件。颜色处理使用可取消的后台任务，过时的预览结果会丢弃。新增操作只保存小型状态记录，不复制原始文档到撤销历史。
 

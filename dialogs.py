@@ -102,7 +102,7 @@ class SettingsDialog(QDialog):
         runtime_form = QFormLayout(runtime_group)
 
         self._ghostscript_edit = QLineEdit()
-        self._ghostscript_edit.setPlaceholderText(tr("留空则自动查找 Ghostscript"))
+        self._ghostscript_edit.setPlaceholderText(L("留空优先使用内置 Ghostscript", "Leave blank to prefer bundled Ghostscript"))
         self._ghostscript_edit.setClearButtonEnabled(True)
         browse_gs_button = QPushButton(tr("浏览…"))
         browse_gs_button.clicked.connect(self._browse_ghostscript)

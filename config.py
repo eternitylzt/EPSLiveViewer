@@ -14,7 +14,7 @@ from typing import Any
 
 
 APP_NAME = "EPS Live Viewer"
-APP_VERSION = "3.1.1"
+APP_VERSION = "3.2.0"
 PROJECT_URL = "https://github.com/eternitylzt/EPSLiveViewer"
 BACKGROUND_MODES = ("transparent", "white", "custom")
 WHEEL_ACTIONS = ("zoom", "files", "pages")
@@ -247,11 +247,17 @@ class ConfigManager:
 
 
 def find_ghostscript(configured_path: str = "") -> Path | None:
-    """Find the Ghostscript command on Windows, Linux, or macOS."""
+    """Prefer an explicit override, then the bundled interpreter, then the OS."""
     if configured_path:
         candidate = Path(configured_path).expanduser()
         if candidate.is_file():
             return candidate
+
+    # Keep file-association relay startup free of runtime discovery/imports.
+    from ghostscript_runtime import bundled_ghostscript_path
+    bundled = bundled_ghostscript_path()
+    if bundled is not None:
+        return bundled
 
     for environment_name in ("GSWIN64C", "GSWIN32C"):
         configured = os.environ.get(environment_name)

@@ -6,6 +6,7 @@ dist-optimized/
 __pycache__/
 *.py[cod]
 *.spec
+vendor/ghostscript/
 
 # Editor and operating-system metadata
 .vscode/

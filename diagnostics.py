@@ -30,10 +30,13 @@ class Diagnostics:
     def report(self, context, ghostscript=None, probe=False):
         version = tr("未查询")
         if probe and ghostscript:
+            from ghostscript_runtime import ghostscript_environment
+
             try:
                 result = subprocess.run(
                     [str(ghostscript), "-version"], capture_output=True, text=True,
                     encoding="utf-8", errors="replace", timeout=4,
+                    env=ghostscript_environment(ghostscript),
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 version = (result.stdout or result.stderr).strip()[:1000]

@@ -1934,6 +1934,9 @@ class MainWindow(QMainWindow):
             "<p>Zhentong Li<br>eternitylzt@gmail.com</p>"
             f"<p><b>{tr('项目主页')}：</b> "
             f"<a href=\"{PROJECT_URL}\">{PROJECT_URL}</a></p>"
+            f"<p>AGPLv3 · Copyright © 2026 Zhentong Li<br>"
+            f"<a href=\"{PROJECT_URL}/blob/main/THIRD_PARTY_NOTICES.md\">"
+            f"{L('许可与第三方源码', 'Licenses and third-party source')}</a></p>"
         )
         root.addWidget(content)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
@@ -2039,8 +2042,8 @@ class MainWindow(QMainWindow):
             return
         box = QMessageBox(QMessageBox.Icon.Warning, tr("未找到 Ghostscript"), "", parent=self)
         box.setTextFormat(Qt.TextFormat.RichText)
-        box.setText(L("EPS/PS 预览及 PostScript 导出需要 Ghostscript。安装后重新打开文件，或在设置中指定路径。",
-                      "EPS/PS preview and PostScript export require Ghostscript. Install it and reopen the file, or set its path in Settings.")
+        box.setText(L("内置 Ghostscript 未找到。请重新解压完整发布包，或在设置中指定外部 Ghostscript。源码运行者可先准备内置引擎。",
+                      "Bundled Ghostscript was not found. Extract the complete release again, or choose an external Ghostscript in Settings. Source users can prepare the bundled engine first.")
                     + '<br><br><a href="https://ghostscript.com/releases/gsdnld.html">Download Ghostscript</a>')
         box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         for label in box.findChildren(QLabel):

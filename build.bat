@@ -52,15 +52,20 @@ if errorlevel 1 goto :failed
 python -m pip install -r requirements.txt
 if errorlevel 1 goto :failed
 
+REM Fetch verified official Ghostscript files; no system installation is needed.
+python scripts\prepare_ghostscript.py
+if errorlevel 1 goto :failed
+python scripts\verify_bundled_ghostscript.py
+if errorlevel 1 goto :failed
+
 echo [3/4] Packaging EPSLiveViewer.exe...
 REM Avoid pulling unrelated DLLs from MATLAB, LaTeX, image tools, etc. into
 REM the executable. PyInstaller finds Qt's own binaries via its PyQt6 hooks.
 set "PATH=%SystemRoot%\System32;%SystemRoot%;%CD%\.venv\Scripts"
-if exist build rmdir /s /q build
-if exist dist rmdir /s /q dist
-if exist EPSLiveViewer.spec del /q EPSLiveViewer.spec
+REM PyInstaller --clean handles its cache. Keep verified dependency downloads.
 
 python -m PyInstaller --noconfirm --clean --onefile --windowed ^
+    --exclude-module numpy ^
     --name EPSLiveViewer ^
     --icon "resources\icon.ico" ^
     --add-data "resources;resources" ^
@@ -72,12 +77,14 @@ if not exist "dist\EPSLiveViewer.exe" goto :failed
 echo [4/4] Copying editable runtime configuration...
 copy /y config.json "dist\config.json" >nul
 if errorlevel 1 goto :failed
+copy /y LICENSE "dist\LICENSE.txt" >nul
+copy /y THIRD_PARTY_NOTICES.md "dist\THIRD_PARTY_NOTICES.md" >nul
 
 echo.
 echo Build succeeded:
 echo   %CD%\dist\EPSLiveViewer.exe
 echo.
-echo Ghostscript remains a runtime dependency. Install it separately on each PC.
+echo Ghostscript is included. Users do not need Python or Ghostscript installed.
 pause
 exit /b 0
 

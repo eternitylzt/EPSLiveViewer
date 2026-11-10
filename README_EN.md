@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-Current version: **3.1.1**. Improved Home alignment, startup and tab switching, with less repeated loading and lower memory use.
+Current version: **3.2.0**. Release packages include a compact Ghostscript runtime, so EPS/PS works without a separate interpreter installation. Existing preview, editing and export features are retained.
 
 **1.0: viewing and live refresh → 2.0: recoloring, comparison and export extensions → 3.0: lightweight editing of recognizable text.**
 
@@ -49,7 +49,7 @@ An empty window shows the brand, main features, version, repository and author e
 
 Replacement entries display their actual colors. Pickers offer recognized current-page paint colors, separately labeled preview samples, and arbitrary RGB/HEX colors. Source colors reflect inversion before replacement; targets offer the original colors. Samples may include antialiasing colors and are not an exhaustive source palette.
 
-Missing Ghostscript prompts include a clickable download link and Settings entry. Repeated installation guidance can be suppressed; failed operations still report an error.
+Release packages use bundled Ghostscript by default; Settings can override it with an external version. Repairing the package or installing external Ghostscript is only necessary when the engine is missing or a source checkout has not been prepared.
 
 EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scientific plotting workflows. It live-previews EPS/PS/PDF files, opens PNG/JPG directly, and provides neighboring-file comparison, multi-page navigation, rotation, color inversion/replacement, export, and video creation in one interface.
 
@@ -88,7 +88,7 @@ Download the appropriate package from [GitHub Releases](https://github.com/etern
 - macOS Intel: download `EPSLiveViewer-macOS-x64.dmg`.
 - Linux x64: extract `EPSLiveViewer-Linux-x64.tar.gz`, make the executable runnable, and launch it.
 
-Release packages do not require Python. Reading EPS/PS or exporting EPS/PS requires Ghostscript; select it under **File → Settings** if automatic detection fails. Reading ordinary PDFs, opening PNG/JPG, color adjustments, PNG export, and video creation do not require Ghostscript. Vector recoloring of ordinary PDFs also works without it; document export explicitly requests Ghostscript if complex PDF effects need raster fallback.
+Release packages include the Python runtime, Ghostscript and the video encoder. No separate Python or Ghostscript installation is needed. Leave the Ghostscript path in Settings empty to use the bundled engine; existing manual overrides remain effective. Runtime resources ship with the app, with no first-run download.
 
 ## Usage
 
@@ -121,7 +121,7 @@ Video crop previews and exported frames use the same rotation/color pipeline. Re
 
 ### Why will an EPS/PS file not display?
 
-Install Ghostscript and select its console executable in Settings if automatic detection fails: usually `gswin64c.exe` on Windows and `gs` on Linux/macOS.
+Packages from 3.2.0 include Ghostscript. Clear an obsolete manual path in Settings and check that the package is complete. Help → Diagnostics reports the actual engine path and error details. Source users should run `python scripts/prepare_ghostscript.py` or install external Ghostscript.
 
 ### Why does a PNG/JPG become blurry when enlarged?
 
@@ -162,9 +162,11 @@ Choose **Help → Check for Updates** manually. There is no background check, au
 <details>
 <summary>Development and build information</summary>
 
-The development stack is Python 3.11+, PyQt6, Ghostscript, and PyInstaller. After installing the requirements, run `python main.py example.eps`. Use `build.bat` for a one-file Windows EXE and `build_unix.sh` on Linux/macOS. Pushing an `eps-live-viewer-v*` tag triggers native Windows, Linux, macOS Apple Silicon, and macOS Intel builds and creates a GitHub Release.
+The development stack is Python 3.11+, PyQt6, Ghostscript, and PyInstaller. Install requirements, run `python scripts/prepare_ghostscript.py` to prepare the verified engine, then run `python main.py example.eps`. Use `build.bat` for a one-file Windows EXE and `build_unix.sh` on Linux/macOS, with a native C/C++ compiler and make. Dependencies are downloaded at build time, not on users' first launch. An `eps-live-viewer-v*` tag triggers native builds for all four platforms, mandatory bundled-engine checks, and publication of the corresponding Ghostscript source.
 
-PDF reading reuses the existing QtPdf component. Color calculations use a slim Pillow build; vector recoloring uses pure-Python pypdf. Pillow's AVIF, WebP, font, and Tk components are excluded, and no full PDF editing engine is bundled. Ghostscript remains the only EPS/PostScript interpreter.
+PDF reading reuses QtPdf; color calculations use slim Pillow and vector recoloring uses pure-Python pypdf. Unused NumPy and Pillow AVIF, WebP, font and Tk components are excluded. Ghostscript retains document interpretation and embedded fonts, CMaps and ICC resources without duplicate resource trees, installers or examples. See [bundling details](docs/ghostscript-bundling.md).
+
+This project is licensed under **AGPL-3.0-only**; see [LICENSE](LICENSE). Third-party components retain their respective licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Redistributors must also provide matching application and Ghostscript source with the build scripts.
 
 Video rehearsal uses Qt timers and temporary PNG frames, not QtMultimedia. At most eight preview frames are held in memory; closing the dialog removes its temporary files. Color work is cancellable and obsolete results are discarded. Undo history stores small adjustment snapshots, not copies of source documents.
 
