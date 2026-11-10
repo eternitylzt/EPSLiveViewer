@@ -43,13 +43,13 @@ EPS export preserves the page canvas and margins rather than shrinking to ink bo
 
 Set complex-effect fallback DPI once in Settings → Export & Video; vector export no longer asks on every operation. Ordinary supported vectors remain vectors. Overwrite, unsaved-change and source-conflict confirmations remain to protect data.
 
-The **Settings menu** groups General & View, Refresh & Dependencies, Export & Video, Editing & Tools, and Toolbar preferences. Saving there synchronizes preferences across windows/tabs and takes precedence over previous tool preferences. Text, color rules, rotation results and crop regions remain document-specific. Job-specific video options do not overwrite global defaults; PNG/JPG sequences still use the first frame's dimensions.
+The **Settings menu** groups General & View, Auto Refresh, Export & Video, Editing & Tools, and Toolbar preferences. Saving there synchronizes preferences across windows/tabs and takes precedence over previous tool preferences. Text, color rules, rotation results and crop regions remain document-specific. Job-specific video options do not overwrite global defaults; PNG/JPG sequences still use the first frame's dimensions.
 
 An empty window shows the brand, main features, version, repository and author email. Open or drop a file to start. The customizable toolbar uses icons with full-name tooltips. New configurations include Edit Text; existing toolbar preferences are preserved.
 
 Replacement entries display their actual colors. Pickers offer recognized current-page paint colors, separately labeled preview samples, and arbitrary RGB/HEX colors. Source colors reflect inversion before replacement; targets offer the original colors. Samples may include antialiasing colors and are not an exhaustive source palette.
 
-Release packages use bundled Ghostscript by default; Settings can override it with an external version. Repairing the package or installing external Ghostscript is only necessary when the engine is missing or a source checkout has not been prepared.
+Release packages include the document engine and work without dependency-path configuration.
 
 EPS Live Viewer is a lightweight cross-platform desktop viewer for rapid scientific plotting workflows. It live-previews EPS/PS/PDF files, opens PNG/JPG directly, and provides neighboring-file comparison, multi-page navigation, rotation, color inversion/replacement, export, and video creation in one interface.
 
@@ -88,7 +88,7 @@ Download the appropriate package from [GitHub Releases](https://github.com/etern
 - macOS Intel: download `EPSLiveViewer-macOS-x64.dmg`.
 - Linux x64: extract `EPSLiveViewer-Linux-x64.tar.gz`, make the executable runnable, and launch it.
 
-Release packages include the Python runtime, Ghostscript and the video encoder. No separate Python or Ghostscript installation is needed. Leave the Ghostscript path in Settings empty to use the bundled engine; existing manual overrides remain effective. Runtime resources ship with the app, with no first-run download.
+Release packages include the Python runtime, Ghostscript and the video encoder. No separate Python or Ghostscript installation is needed. No engine path needs to be configured; saved external paths from older versions are ignored. Runtime resources ship with the app, with no first-run download.
 
 ## Usage
 
@@ -121,7 +121,7 @@ Video crop previews and exported frames use the same rotation/color pipeline. Re
 
 ### Why will an EPS/PS file not display?
 
-Packages from 3.2.0 include Ghostscript. Clear an obsolete manual path in Settings and check that the package is complete. Help → Diagnostics reports the actual engine path and error details. Source users should run `python scripts/prepare_ghostscript.py` or install external Ghostscript.
+Packages from 3.2.0 include the document engine; no additional software is needed. If the bundled engine is unavailable, download and extract the complete application package again. Help → Diagnostics provides error details. Source setup is covered in the development notes below.
 
 ### Why does a PNG/JPG become blurry when enlarged?
 

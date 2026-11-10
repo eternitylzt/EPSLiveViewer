@@ -2,9 +2,9 @@
 
 ## 结论 / Result
 
-EPS Live Viewer 3.2.0 在发布包内提供独立 Ghostscript 子进程，不依赖用户已安装 Ghostscript，也不在首次运行时联网下载。手动指定的外部引擎仍有优先级，源码运行仍可回退到系统安装。
+EPS Live Viewer 3.2.0 在发布包内提供独立 Ghostscript 子进程，不依赖用户已安装 Ghostscript，也不在首次运行时联网下载。设置界面不再提供外部引擎路径，升级时忽略旧路径；源码运行未准备内置引擎时仍可回退到系统安装。
 
-Release packages contain a private interpreter. No separate Ghostscript installation or first-run download is required. An explicit external-engine setting takes priority; source checkouts retain system discovery as a fallback.
+Release packages contain a private interpreter. No separate Ghostscript installation or first-run download is required. The UI no longer exposes an external-engine path, and old saved paths are ignored. Source checkouts retain system discovery when no bundled runtime has been prepared.
 
 ## 分析依据 / Evidence
 

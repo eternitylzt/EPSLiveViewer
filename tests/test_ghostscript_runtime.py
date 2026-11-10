@@ -1,6 +1,7 @@
 """Bundled discovery must not depend on, or alter, installed Ghostscript."""
 
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -59,6 +60,28 @@ class GhostscriptRuntimeTests(unittest.TestCase):
             self.assertEqual(config.find_ghostscript(), external)
         with patch.dict(os.environ, {"GSWIN64C": "", "GSWIN32C": ""}), patch.object(config.shutil, "which", return_value=str(external)):
             self.assertEqual(config.find_ghostscript(), external)
+
+    def test_legacy_settings_drop_external_path_and_preserve_preferences(self):
+        bundled = self.bundle()
+        external = self.executable(self.root / "old-installation" / "gs")
+        manager = config.ConfigManager()
+        manager.base_dir = self.root
+        manager.path = self.root / "config.json"
+        manager.path.write_text(json.dumps({
+            "ghostscript_path": str(external), "suppress_ghostscript_help": True,
+            "auto_refresh": False, "export_dpi": 600, "language": "en",
+        }), encoding="utf-8")
+        preferences = manager.load()
+        self.assertFalse(preferences.auto_refresh)
+        self.assertEqual(preferences.export_dpi, 600)
+        self.assertEqual(preferences.language, "en")
+        manager.save(preferences)
+        saved = json.loads(manager.path.read_text(encoding="utf-8"))
+        self.assertNotIn("ghostscript_path", saved)
+        self.assertNotIn("suppress_ghostscript_help", saved)
+        renderer = EpsRenderer()
+        self.addCleanup(renderer.cache.cleanup)
+        self.assertEqual(renderer.ghostscript_path, bundled)
 
     def test_bundle_environment_is_private_and_preserves_system_font_context(self):
         bundled = self.bundle()

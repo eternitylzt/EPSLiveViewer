@@ -2,10 +2,10 @@
 
 ## 3.2.0
 
-- 发布包内置 Ghostscript 10.08.0，无需用户另外安装；保留手动路径覆盖与外部版本兼容。
+- 发布包内置 Ghostscript 10.08.0，无需用户另外安装；移除依赖路径设置、下载链接和安装提示，升级时忽略旧外部路径。
 - 避免重复资源及未使用的 NumPy；内置字体、CMap、ICC 和所需文档功能保持完整。
 - AGPLv3 开源发行，附对应引擎源码及许可；新增无系统 Ghostscript 的强制打包验证。
-- Bundled Ghostscript 10.08.0, no separate installation; existing external overrides remain supported.
+- Bundled Ghostscript 10.08.0 with no separate installation; removed dependency-path settings, download links and installation guidance. Old external paths are ignored.
 - Reduced redundant resources and unused NumPy; required document features and embedded resources retained.
 - AGPLv3 distribution with corresponding engine source, notices and mandatory bundled-runtime checks.
 

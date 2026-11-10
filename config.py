@@ -76,7 +76,6 @@ class AppConfig:
     current zoom level. ``export_dpi`` affects only explicit PNG exports.
     """
 
-    ghostscript_path: str = ""
     auto_refresh: bool = True
     refresh_interval: int = 500
     background_mode: str = "white"
@@ -92,7 +91,6 @@ class AppConfig:
     auto_select_text: bool = True
     rotation_scope: str = "current"
     png_all_pages: bool = True
-    suppress_ghostscript_help: bool = False
     color_tolerance: int = 8
     video_fps: int = 10
     video_format: str = "mp4"
@@ -127,16 +125,12 @@ class AppConfig:
             language = defaults.language
 
         legacy_or_export_dpi = raw.get("export_dpi", raw.get("dpi", defaults.export_dpi))
-        configured_path = raw.get("ghostscript_path", "")
-        if configured_path is None:
-            configured_path = ""
         tools = raw.get("toolbar_tools")
         previous_default = ["open","previous_file","next_file","previous_page","next_page",
                             "zoom_out","zoom_in","fit","invert_colors","edit_text","save_png"]
         if tools == previous_default:
             tools = defaults.toolbar_tools
         return cls(
-            ghostscript_path=str(configured_path).strip(),
             auto_refresh=_coerce_bool(raw.get("auto_refresh"), defaults.auto_refresh),
             refresh_interval=_bounded_int(
                 raw.get("refresh_interval"),
@@ -160,7 +154,7 @@ class AppConfig:
             open_mode="tabs" if raw.get("open_mode") == "tabs" else "window",
             **{name: _coerce_bool(raw.get(name), getattr(defaults,name)) for name in (
                 "home_recent", "start_maximized", "text_list_visible", "auto_select_text",
-                "png_all_pages", "suppress_ghostscript_help",
+                "png_all_pages",
                 "compare_linked", "compare_locked", "compare_follow")},
             rotation_scope="all" if raw.get("rotation_scope") == "all" else "current",
             color_tolerance=_bounded_int(raw.get("color_tolerance"),8,0,255),

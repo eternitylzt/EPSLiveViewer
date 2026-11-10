@@ -527,7 +527,7 @@ class EpsRenderer:
         executable = self.ghostscript_path
         if executable is None:
             raise GhostscriptNotFoundError(
-                tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。")
+                tr("内置文档引擎不可用，请重新下载并解压完整的软件包。")
             )
 
         if crop_to_eps_bounds is None:
@@ -649,7 +649,7 @@ class EpsRenderer:
         executable = self.ghostscript_path
         if executable is None:
             raise GhostscriptNotFoundError(
-                tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。")
+                tr("内置文档引擎不可用，请重新下载并解压完整的软件包。")
             )
 
         crop_to_eps_bounds = source_path.suffix.lower() == ".eps"
@@ -1100,7 +1100,7 @@ class EpsRenderer:
         executable = self.ghostscript_path
         if executable is None:
             raise GhostscriptNotFoundError(
-                tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。")
+                tr("内置文档引擎不可用，请重新下载并解压完整的软件包。")
             )
         snapshot = self._snapshot_source(source, cancel_event)
         output = self.cache.next_path(".pdf")
@@ -1282,7 +1282,7 @@ class EpsRenderer:
         destination.parent.mkdir(parents=True, exist_ok=True)
         executable = self.ghostscript_path
         if destination.suffix.lower() != ".pdf" and executable is None:
-            raise GhostscriptNotFoundError(tr("未找到 Ghostscript，请安装 Ghostscript 或在设置中指定路径。"))
+            raise GhostscriptNotFoundError(tr("内置文档引擎不可用，请重新下载并解压完整的软件包。"))
         device = "pdfwrite" if destination.suffix.lower() == ".pdf" else self._document_device(destination.suffix, executable)
 
         page_numbers = (
@@ -1308,7 +1308,7 @@ class EpsRenderer:
                 self.cache.release(converted.pdf_path)
             if rasterized:
                 if executable is None:
-                    raise EpsRenderError(tr("此 PDF 含复杂配色，请安装 Ghostscript 以导出兼容的调色文档，或另存为 PNG。"))
+                    raise EpsRenderError(tr("内置文档引擎不可用，请重新下载并解压完整的软件包。"))
                 staging_input = self._rasterized_postscript(
                     source_path,
                     transforms,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,22 +92,13 @@ class SettingsDialog(QDialog):
             self._sections[key] = self.tabs.addTab(area,title)
             return content
         general = section("general",L("常规与预览", "General & View"))
-        runtime = section("runtime",L("刷新与依赖", "Refresh & Dependencies"))
+        runtime = section("runtime",L("自动刷新", "Auto Refresh"))
         exports = section("export",L("导出与视频", "Export & Video"))
         editing = section("editing",L("编辑与工具", "Editing & Tools"))
         toolbar = section("toolbar",L("工具栏", "Toolbar"))
 
-        runtime_group = QGroupBox(tr("渲染与自动刷新"))
+        runtime_group = QGroupBox(tr("自动刷新"))
         runtime_form = QFormLayout(runtime_group)
-
-        self._ghostscript_edit = QLineEdit()
-        self._ghostscript_edit.setPlaceholderText(L("留空优先使用内置 Ghostscript", "Leave blank to prefer bundled Ghostscript"))
-        self._ghostscript_edit.setClearButtonEnabled(True)
-        browse_gs_button = QPushButton(tr("浏览…"))
-        browse_gs_button.clicked.connect(self._browse_ghostscript)
-        runtime_form.addRow(
-            "Ghostscript：", _joined_row(self._ghostscript_edit, browse_gs_button)
-        )
 
         self._auto_refresh_check = QCheckBox(tr("当前文件变化后自动刷新"))
         self._auto_refresh_check.toggled.connect(self._sync_enabled_states)
@@ -120,12 +110,6 @@ class SettingsDialog(QDialog):
         self._refresh_interval_spin.setSuffix(" ms")
         runtime_form.addRow(tr("检测间隔："), self._refresh_interval_spin)
         runtime.addWidget(runtime_group)
-        self._suppress_help = QCheckBox(L("不再显示 Ghostscript 安装指引（操作错误仍提示）",
-                                          "Hide Ghostscript installation guidance (errors still reported)"))
-        runtime.addWidget(self._suppress_help)
-        download = QLabel('<a href="https://ghostscript.com/releases/gsdnld.html">Ghostscript Downloads</a>')
-        download.setOpenExternalLinks(True)
-        runtime.addWidget(download)
         runtime.addStretch()
 
         display_group = QGroupBox(tr("预览与交互"))
@@ -272,7 +256,6 @@ class SettingsDialog(QDialog):
         super().accept()
 
     def _load_values(self) -> None:
-        self._ghostscript_edit.setText(self._initial.ghostscript_path)
         self._auto_refresh_check.setChecked(self._initial.auto_refresh)
         self._refresh_interval_spin.setValue(self._initial.refresh_interval)
         index = self._background_combo.findData(self._initial.background_mode)
@@ -286,7 +269,7 @@ class SettingsDialog(QDialog):
         self._open_mode_combo.setCurrentIndex(self._open_mode_combo.findData(self._initial.open_mode))
         for widget,name in ((self._home_recent,"home_recent"),(self._maximized,"start_maximized"),
                 (self._text_list,"text_list_visible"),(self._auto_text,"auto_select_text"),
-                (self._png_all,"png_all_pages"),(self._suppress_help,"suppress_ghostscript_help")):
+                (self._png_all,"png_all_pages")):
             widget.setChecked(getattr(self._initial,name))
         self._scope.setCurrentIndex(self._scope.findData(self._initial.rotation_scope))
         self._tolerance.setValue(self._initial.color_tolerance)
@@ -300,24 +283,6 @@ class SettingsDialog(QDialog):
             box.setChecked(getattr(self._initial,name))
         self._update_color_button()
         self._sync_enabled_states()
-
-    def _browse_ghostscript(self) -> None:
-        current = Path(self._ghostscript_edit.text().strip()).expanduser()
-        start = str(current.parent if current.is_file() else Path.home())
-        executable_filter = (
-            "Ghostscript (gswin64c.exe gswin32c.exe gs.exe);;"
-            + tr("可执行文件 (*.exe);;所有文件 (*.*)")
-            if sys.platform == "win32"
-            else f"Ghostscript (gs);;{tr('所有文件 (*)')}"
-        )
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            tr("选择 Ghostscript 控制台程序"),
-            start,
-            executable_filter,
-        )
-        if filename:
-            self._ghostscript_edit.setText(filename)
 
     def _choose_background_color(self) -> None:
         selected = QColorDialog.getColor(
@@ -355,7 +320,6 @@ class SettingsDialog(QDialog):
         return AppConfig.from_mapping(
             {
                 **self._initial.__dict__,
-                "ghostscript_path": self._ghostscript_edit.text().strip(),
                 "auto_refresh": self._auto_refresh_check.isChecked(),
                 "refresh_interval": self._refresh_interval_spin.value(),
                 "background_mode": mode,
@@ -372,7 +336,6 @@ class SettingsDialog(QDialog):
                 "home_recent":self._home_recent.isChecked(), "start_maximized":self._maximized.isChecked(),
                 "text_list_visible":self._text_list.isChecked(), "auto_select_text":self._auto_text.isChecked(),
                 "rotation_scope":self._scope.currentData(), "png_all_pages":self._png_all.isChecked(),
-                "suppress_ghostscript_help":self._suppress_help.isChecked(),
                 "color_tolerance":self._tolerance.value(), "video_fps":self._video_fps.value(),
                 "video_format":self._video_format.currentData(), "video_width":self._video_width.value(),
                 "video_height":self._video_height.value(), "video_background":QColor(self._video_color.text()).name(),

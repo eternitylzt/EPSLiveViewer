@@ -40,7 +40,6 @@ from PyQt6.QtWidgets import (
     QToolBar,
     QToolButton,
     QVBoxLayout,
-    QCheckBox,
     QGridLayout,
     QStackedWidget,
 )
@@ -319,7 +318,7 @@ class MainWindow(QMainWindow):
         self._config_manager = config_manager
         self._config: AppConfig = config_manager.load()
         set_language(self._config.language)
-        self._renderer = EpsRenderer(self._config.ghostscript_path)
+        self._renderer = EpsRenderer()
         self._monitor = EpsFileMonitor(self._config.refresh_interval, self)
         self._monitor.file_changed.connect(self._on_source_changed)
 
@@ -577,7 +576,7 @@ class MainWindow(QMainWindow):
         self._preferences_menu.addSeparator()
         self._settings_sections = []
         for key, zh, en in (("general","常规与预览…","General & View…"),
-                            ("runtime","刷新与依赖…","Refresh & Dependencies…"),
+                            ("runtime","自动刷新…","Auto Refresh…"),
                             ("export","导出与视频…","Export & Video…"),
                             ("editing","编辑与工具…","Editing & Tools…"),
                             ("toolbar","工具栏…","Toolbar…")):
@@ -991,7 +990,6 @@ class MainWindow(QMainWindow):
             return
         dialog = ComparisonDialog(
             self._current_file, self._current_transforms().snapshot(), self._current_page_index,
-            self._config.ghostscript_path,
             {path: state.snapshot() for path, state in self._document_transforms.items()},
             self._config.background_mode, self._config.background_color, self._config.wheel_action, self,
         )
@@ -1250,7 +1248,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message, 6000)
         if isinstance(error, GhostscriptNotFoundError):
             if not request.automatic:
-                self.show_nonfatal_error(tr("未找到 Ghostscript"), message)
+                self.show_nonfatal_error(tr("内置文档引擎不可用"), message)
             return
         if request.automatic:
             self._automatic_failure_count += 1
@@ -1393,7 +1391,7 @@ class MainWindow(QMainWindow):
         message = str(failure.error) or tr("PNG 导出失败。")
         self.statusBar().showMessage(message, 6000)
         title = (
-            tr("未找到 Ghostscript")
+            tr("内置文档引擎不可用")
             if isinstance(failure.error, GhostscriptNotFoundError)
             else tr("PNG 导出失败")
         )
@@ -1544,7 +1542,7 @@ class MainWindow(QMainWindow):
         message = str(failure.error) or tr("文档导出失败。")
         self.statusBar().showMessage(message, 6000)
         title = (
-            tr("未找到 Ghostscript")
+            tr("内置文档引擎不可用")
             if isinstance(failure.error, GhostscriptNotFoundError)
             else tr("文档导出失败")
         )
@@ -1780,15 +1778,6 @@ class MainWindow(QMainWindow):
             dialog.deleteLater()
             return
         updated = dialog.get_config()
-        if updated.ghostscript_path:
-            executable = Path(updated.ghostscript_path).expanduser()
-            if not executable.is_file():
-                self.show_nonfatal_error(
-                    tr("Ghostscript 路径无效"),
-                    tr("找不到指定的 Ghostscript 程序：\n{path}", path=executable),
-                )
-                return
-
         try:
             self._config_manager.save(updated)
         except OSError as error:
@@ -1808,11 +1797,9 @@ class MainWindow(QMainWindow):
     def _apply_config(self, updated):
         previous = self._config
         updated = AppConfig.from_mapping(updated.__dict__)
-        ghostscript_changed = updated.ghostscript_path != previous.ghostscript_path
         refresh_just_enabled = updated.auto_refresh and not previous.auto_refresh
         language_changed = updated.language != previous.language
         self._config = updated
-        self._renderer.set_ghostscript_path(updated.ghostscript_path)
         self._monitor.set_refresh_interval(updated.refresh_interval)
         self._monitor.set_enabled(updated.auto_refresh)
         self._view.set_page_background(
@@ -1840,7 +1827,7 @@ class MainWindow(QMainWindow):
         set_language(updated.language)
         self._retranslate_ui()
 
-        if (ghostscript_changed or refresh_just_enabled) and self._current_file is not None:
+        if refresh_just_enabled and self._current_file is not None:
             self._generation += 1
             self._queue_preview(
                 PreviewRequest(self._current_file, self._generation, False, False)
@@ -2025,38 +2012,12 @@ class MainWindow(QMainWindow):
             self._check_updates_action.setEnabled(True)
 
     def show_nonfatal_error(self, title: str, message: str) -> None:
-        if "Ghostscript" in title and self._renderer.ghostscript_path is None:
-            self._show_ghostscript_help(message)
-            return
         context = self._diagnostic_context()
         self._diagnostics.record(title, message, context)
         box = QMessageBox(QMessageBox.Icon.Warning, title, message,
                           QMessageBox.StandardButton.Close, self)
         box.setDetailedText(self._diagnostics.report(context, self._renderer.ghostscript_path))
         box.exec()
-
-    def _show_ghostscript_help(self, message):
-        from i18n import bilingual as L
-        if self._config.suppress_ghostscript_help:
-            QMessageBox.warning(self, tr("未找到 Ghostscript"), message)
-            return
-        box = QMessageBox(QMessageBox.Icon.Warning, tr("未找到 Ghostscript"), "", parent=self)
-        box.setTextFormat(Qt.TextFormat.RichText)
-        box.setText(L("内置 Ghostscript 未找到。请重新解压完整发布包，或在设置中指定外部 Ghostscript。源码运行者可先准备内置引擎。",
-                      "Bundled Ghostscript was not found. Extract the complete release again, or choose an external Ghostscript in Settings. Source users can prepare the bundled engine first.")
-                    + '<br><br><a href="https://ghostscript.com/releases/gsdnld.html">Download Ghostscript</a>')
-        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        for label in box.findChildren(QLabel):
-            label.setOpenExternalLinks(True)
-        check = QCheckBox(L("不再显示安装指引", "Do not show installation guidance again"))
-        box.setCheckBox(check)
-        settings = box.addButton(tr("设置(&P)…"), QMessageBox.ButtonRole.ActionRole)
-        box.addButton(QMessageBox.StandardButton.Close)
-        box.exec()
-        self._config.suppress_ghostscript_help = check.isChecked()
-        self._save_config()
-        if box.clickedButton() == settings:
-            self._show_settings()
 
     def _diagnostic_context(self):
         state = self._current_transforms().snapshot()

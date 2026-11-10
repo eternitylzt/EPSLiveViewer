@@ -1,5 +1,4 @@
 {
-    "ghostscript_path": "",
     "auto_refresh": true,
     "refresh_interval": 500,
     "background_mode": "white",
@@ -15,7 +14,6 @@
     "auto_select_text": true,
     "rotation_scope": "current",
     "png_all_pages": true,
-    "suppress_ghostscript_help": false,
     "color_tolerance": 8,
     "video_fps": 10,
     "video_format": "mp4",
@@ -26,4 +24,3 @@
     "compare_locked": true,
     "compare_follow": true
 }
-

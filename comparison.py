@@ -153,7 +153,7 @@ class ComparisonPane(QWidget):
 class ComparisonDialog(QDialog):
     error = pyqtSignal(object)
 
-    def __init__(self, source, transforms, page, ghostscript_path, snapshots,
+    def __init__(self, source, transforms, page, snapshots,
                  background_mode, background_color, wheel_action, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -161,7 +161,7 @@ class ComparisonDialog(QDialog):
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, True)
         self.resize(1200, 760)
-        self._renderer = EpsRenderer(ghostscript_path)
+        self._renderer = EpsRenderer()
         self._snapshots = dict(snapshots)
         self._syncing = False
         root = QVBoxLayout(self)
