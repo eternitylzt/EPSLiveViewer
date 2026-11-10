@@ -42,6 +42,10 @@ The supplied directory is an installed 2015 release, not a complete source tree.
 
 The interpreter adds necessary bytes: a self-contained release cannot be compared directly with an executable that relies on a separately installed engine. Python refactoring alone has limited size benefit; the previous Windows build's compressed FFmpeg payload accounted for about 41% of the EXE. The Windows private Ghostscript payload is approximately 25.3 MiB before executable compression, including notices and VC libraries.
 
+本机 Windows 单文件测量：3.1.1 为 52.70 MiB（不含 GS），本次优化前为 77.58 MiB，明确排除无用 NumPy 后为 **66.36 MiB**（含完整所需 GS 运行时）。这是本机相同 Python/Qt 环境的构建结果，其他平台或不同依赖版本可能不同。
+
+Same-machine Windows one-file measurements: 52.70 MiB for 3.1.1 without GS; 77.58 MiB for the initial integrated build; **66.36 MiB** after excluding unused NumPy. Other platforms and dependency versions may differ.
+
 ## 构建与验证 / Build and verification
 
 ```text

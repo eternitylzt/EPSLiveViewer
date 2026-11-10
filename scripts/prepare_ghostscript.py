@@ -1,7 +1,7 @@
 """Prepare a pinned, relocatable Ghostscript runtime without installing it.
 
 Only build machines download archives. End users receive the complete runtime.
-Windows uses Artifex's signed release binaries and app-local VC runtime files;
+Windows uses Artifex's official release binaries and app-local VC runtime files;
 Unix builds the required output devices from the matching complete source tarball.
 The source tarball remains a separate release asset, never inside the application.
 """
