@@ -139,7 +139,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --exclude-module numpy `
+          $buildPython = (Get-Command python).Source
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$(Split-Path $buildPython)"
+          & $buildPython -m PyInstaller --noconfirm --clean --onefile --windowed --exclude-module numpy `
             --name EPSLiveViewer `
             --icon "resources\icon.ico" `
             --add-data "resources;resources" `
