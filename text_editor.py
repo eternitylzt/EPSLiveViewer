@@ -87,7 +87,9 @@ class TextEditorDialog(QDialog):
         self.setWindowTitle(L("编辑可识别文字", "Edit Recognizable Text"))
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self._temp = tempfile.TemporaryDirectory(prefix="eps-text-")
-        self.folder = Path(self._temp.name)
+        # The preview releases canonical paths. Keep the base document in that
+        # same spelling (Windows short TEMP names and macOS /var are aliases).
+        self.folder = Path(self._temp.name).resolve()
         self.base, self.snapshot = self.folder/"base.pdf", self.folder/"source.pdf"
         shutil.copyfile(pdf, self.snapshot)
         self.source, self.renderer = Path(source).resolve(), renderer

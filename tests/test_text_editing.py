@@ -270,6 +270,43 @@ class TextEditingTests(unittest.TestCase):
         self.assertEqual(dialog.edits,dialog._saved_edits)
         dialog.reject()
 
+    def test_aliased_temporary_path_keeps_base_for_editing_and_save(self):
+        real_temporary_directory = tempfile.TemporaryDirectory
+
+        def aliased_directory(*args, **kwargs):
+            directory = real_temporary_directory(*args, dir=self.folder, **kwargs)
+            path = Path(directory.name)
+            # Model a second spelling of the same directory without depending
+            # on NTFS short-name creation or permission to create symlinks.
+            directory.name = str(path / ".." / path.name)
+            return directory
+
+        with patch("text_editor.tempfile.TemporaryDirectory", side_effect=aliased_directory):
+            dialog = TextEditorDialog(self.source,self.source,self.renderer,TransformSnapshot())
+        try:
+            settle(dialog)
+            dialog._start_edit(dialog.objects[0])
+            settle(dialog)
+            # Activating the inline editor retires the initial PDF preview,
+            # but the source used by subsequent edits must remain available.
+            self.assertTrue(dialog.base.is_file())
+            cursor = dialog._active_item.textCursor()
+            cursor.insertText("Edited through a directory alias")
+            dialog._active_item.setTextCursor(cursor)
+            target = self.folder / "alias-saved.pdf"
+            with patch("text_editor.QFileDialog.getSaveFileName",return_value=(str(target),"PDF (*.pdf)")) as picker:
+                dialog._save()
+                settle(dialog)
+                picker.assert_called_once()
+            self.assertTrue(dialog.base.is_file())
+            self.assertIn("Edited through a directory alias",[x.style.text for x in discover_text(target)])
+            self.assertIn("Original label",[x.style.text for x in discover_text(self.source)])
+            self.assertEqual(dialog.edits,dialog._saved_edits)
+        finally:
+            settle(dialog)
+            with patch.object(QMessageBox,"question",return_value=QMessageBox.StandardButton.Discard):
+                dialog.reject()
+
     def test_main_preview_double_click_maps_rotated_text_to_editor(self):
         manager = ConfigManager()
         manager.base_dir = self.folder
