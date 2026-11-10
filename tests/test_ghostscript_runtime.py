@@ -18,7 +18,8 @@ class GhostscriptRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="eps_gs_")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "runtime with spaces 中文"
+        # CI may provide an 8.3 TEMP path (RUNNER~1); compare canonical paths.
+        self.root = Path(self.temporary.name).resolve() / "runtime with spaces 中文"
         self.root.mkdir()
         self.enterContext(patch.object(ghostscript_runtime, "__file__", str(self.root / "ghostscript_runtime.py")))
         self.enterContext(patch.object(sys, "_MEIPASS", None, create=True))

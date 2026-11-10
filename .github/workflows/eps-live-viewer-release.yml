@@ -83,6 +83,7 @@ jobs:
           tests.test_startup
           tests.test_document_workspace
           tests.test_ghostscript_runtime
+          tests.test_text_editing
 
       - name: Check frozen PDF and high-DPI workflows on macOS/Linux
         if: runner.os == 'macOS' || runner.os == 'Linux'

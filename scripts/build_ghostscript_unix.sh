@@ -57,9 +57,18 @@ CFLAGS="${CFLAGS:--Os}" ./configure \
     --without-so \
     --with-fontpath='%rom%Resource/Font'
 
-if grep -Eq '^SHARE_[A-Z0-9_]+[[:space:]]*=[[:space:]]*1([[:space:]]|$)' Makefile; then
+# Only codec/font libraries used by these devices must be embedded. Ghostscript
+# leaves SHARE_LCUPS/SHARE_LCUPSI=1 even with CUPS disabled; those flags describe
+# an unused build rule, not a linked dependency. Check the selected drivers
+# separately and retain the final ldd/otool dependency check below.
+shared_codecs='^SHARE_(FT|JPEG|LIBPNG|LIBTIFF|ZLIB|BROTLI|JBIG2|JPX|LCMS)[[:space:]]*=[[:space:]]*1([[:space:]]|$)'
+if grep -Eq "$shared_codecs" Makefile; then
     echo "A Ghostscript codec unexpectedly selected a shared system library:" >&2
-    grep -E '^SHARE_[A-Z0-9_]+[[:space:]]*=[[:space:]]*1([[:space:]]|$)' Makefile >&2
+    grep -E "$shared_codecs" Makefile >&2
+    exit 1
+fi
+if grep -E '^DEVICE_DEVS[0-9]*[[:space:]]*=' Makefile | grep -Eq 'cups\.dev|ijs\.dev'; then
+    echo "An unused printing driver was unexpectedly enabled." >&2
     exit 1
 fi
 make -j "$jobs" COMPILE_INITS=1 \
