@@ -46,6 +46,10 @@ The interpreter adds necessary bytes: a self-contained release cannot be compare
 
 Same-machine Windows one-file measurements: 52.70 MiB for 3.1.1 without GS; 77.58 MiB for the initial integrated build; **66.36 MiB** after excluding unused NumPy. Other platforms and dependency versions may differ.
 
+云端 Windows 构建使用较新的完整 FFmpeg（imageio-ffmpeg 0.8.1；本机为 0.6.0），EXE 为 **71.66 MiB**。清理构建时的库搜索路径后，不再意外收集构建机的另一套 OpenSSL/UCRT DLL，较清理前 75.13 MiB 减少约 3.47 MiB。直接检查成品确认无 NumPy，保留 Ghostscript 解释器及四个必要 VC 运行库；没有通过降低视频编码能力减小文件。
+
+The CI Windows EXE is **71.66 MiB**, using the newer complete FFmpeg from imageio-ffmpeg 0.8.1 (the local build uses 0.6.0). Restricting build-time DLL discovery removed an unrelated runner OpenSSL/UCRT set, reducing the EXE from 75.13 MiB by about 3.47 MiB. Archive inspection confirms no NumPy and retains the interpreter plus its four required VC runtime DLLs. Video encoding capabilities were not reduced.
+
 ## 构建与验证 / Build and verification
 
 ```text
