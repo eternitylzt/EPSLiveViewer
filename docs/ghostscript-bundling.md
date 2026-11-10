@@ -64,6 +64,10 @@ The preparation script pins archive checksums and writes a per-file manifest. Th
 
 验证覆盖多页 EPS/PS、标准字体、页尺寸、透明 600 DPI PNG、矢量换色和旋转后 EPS/PS 回读、损坏输入保护及运行中取消。另运行应用的预览、视频、文字编辑及标签页回归检查。测试无法保证任意第三方 PostScript 都兼容；未嵌入的特殊字体仍受源文件及本机字体条件影响。
 
+2026-11-10：[四平台构建](https://github.com/eternitylzt/EPSLiveViewer/actions/runs/42836621768)已全部通过，包含实际打包程序的内置引擎验证，以及 macOS 原生/打包后的菜单与鼠标操作检查。随后仅收紧 Windows 打包时的 DLL 搜索路径，[复核构建](https://github.com/eternitylzt/EPSLiveViewer/actions/runs/42838352980)的 Windows、Linux 和 Intel Mac 均通过；未变化的 Apple Silicon 任务仍在排队，结束重复构建，保留上一轮已通过的同一应用代码 DMG。以上为构建验证，未创建公开 Release。
+
+All four platform builds passed on 2026-11-10, including packaged interpreter checks and native/frozen macOS controls. After the Windows-only DLL search-path refinement, Windows, Linux and Intel Mac passed again. The unchanged Apple Silicon job remained queued, so that redundant run was cancelled; its previously validated DMG uses the same application code. These were build-only runs, without publishing a Release.
+
 ## 许可 / License
 
 用户已选择 AGPLv3 开源发行；应用为 AGPL-3.0-only，第三方保留各自许可。发布流水线将匹配的 Ghostscript 源码作为附件一并提供。见 [第三方说明](../THIRD_PARTY_NOTICES.md)。
